@@ -336,14 +336,14 @@ impl QwenRealtimeASR {
                 return;
             }
             st.session_finished = true;
-            let text = transcript.unwrap_or_else(|| {
-                let joined = st.final_segments.join("");
-                if joined.trim().is_empty() {
-                    st.last_partial_text.clone()
-                } else {
-                    joined
-                }
-            });
+            let joined = st.final_segments.join("");
+            let text = if !joined.trim().is_empty() {
+                joined
+            } else if let Some(transcript) = transcript {
+                transcript
+            } else {
+                st.last_partial_text.clone()
+            };
             let duration_ms = st.bytes_received / BYTES_PER_MS;
             let raw = RawTranscript { text, duration_ms };
             (st.final_tx.take(), raw)
@@ -590,5 +590,55 @@ mod tests {
         let text = extract_transcript_text(&value);
 
         assert_eq!(text, Some("DeepSeek stream test"));
+    }
+
+    #[test]
+    fn session_finished_transcript_does_not_drop_accumulated_completed_segments() {
+        let asr = QwenRealtimeASR::new(QwenRealtimeCredentials {
+            api_key: "test-key".to_string(),
+            endpoint: DEFAULT_ENDPOINT.to_string(),
+            model: DEFAULT_MODEL.to_string(),
+        });
+        let (tx, mut rx) = oneshot::channel();
+        {
+            let mut st = asr.state.lock();
+            st.final_tx = Some(tx);
+            st.bytes_received = 64_000;
+        }
+
+        assert!(asr.handle_text_message(
+            r#"{"type":"conversation.item.input_audio_transcription.completed","transcript":"第一段。"}"#
+        ));
+        assert!(asr.handle_text_message(
+            r#"{"type":"conversation.item.input_audio_transcription.completed","transcript":"第二段。"}"#
+        ));
+        assert!(!asr.handle_text_message(
+            r#"{"type":"session.finished","transcript":"第一段。"}"#
+        ));
+
+        let raw = rx.try_recv().unwrap().unwrap();
+        assert_eq!(raw.text, "第一段。第二段。");
+    }
+
+    #[test]
+    fn session_finished_transcript_is_used_when_no_completed_segments_exist() {
+        let asr = QwenRealtimeASR::new(QwenRealtimeCredentials {
+            api_key: "test-key".to_string(),
+            endpoint: DEFAULT_ENDPOINT.to_string(),
+            model: DEFAULT_MODEL.to_string(),
+        });
+        let (tx, mut rx) = oneshot::channel();
+        {
+            let mut st = asr.state.lock();
+            st.final_tx = Some(tx);
+            st.bytes_received = 32_000;
+        }
+
+        assert!(!asr.handle_text_message(
+            r#"{"type":"session.finished","transcript":"结束事件文本。"}"#
+        ));
+
+        let raw = rx.try_recv().unwrap().unwrap();
+        assert_eq!(raw.text, "结束事件文本。");
     }
 }
