@@ -1,0 +1,81 @@
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+body {
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#root {
+  display: flex;
+  isolation: isolate;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+input, textarea {
+  font-family: inherit;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+a { color: inherit; text-decoration: none; }
+
+.ol-command-btn {
+  height: 28px;
+  border: 1px solid var(--ol-line);
+  border-radius: 6px;
+  background: var(--ol-command-bg);
+  color: var(--ol-ink-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: default;
+  transition: background 0.16s var(--ol-motion-quick), border-color 0.16s var(--ol-motion-quick), color 0.16s var(--ol-motion-quick);
+}
+
+.ol-command-btn:hover {
+  background: var(--ol-command-bg-hover);
+  border-color: var(--ol-line-strong);
+  color: var(--ol-ink);
+}
+
+.ol-command-text-btn {
+  min-width: 52px;
+  padding: 0 10px;
+}
+
+.ol-command-icon-btn {
+  width: 30px;
+  padding: 0;
+}
+
+@keyframes ol-window-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0) scale(0.992);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: blur(0);
+  }
+}
