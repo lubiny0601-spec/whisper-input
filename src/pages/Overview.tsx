@@ -6,7 +6,8 @@ import { PreviewButton, PreviewCard, PreviewPageHeader, PreviewPill } from '../c
 import { detectOS } from '../components/WindowChrome';
 import { formatComboLabel } from '../lib/hotkey';
 import { getCredentials, listHistory } from '../lib/ipc';
-import { buildOverviewMetrics } from '../lib/overviewMetrics';
+import { buildOverviewMetrics, buildWeeklyUsage } from '../lib/overviewMetrics';
+import type { WeeklyUsageDay } from '../lib/overviewMetrics';
 import {
   DEFAULT_ASR_PROVIDER_ID,
   DEFAULT_LLM_PROVIDER_ID,
@@ -99,9 +100,13 @@ export function Overview({ onOpenHistory, onOpenSettings }: OverviewProps) {
   }, [refreshHistory]);
 
   const metrics = useMemo(() => buildOverviewMetrics(history), [history]);
-
-  // 周历:过去 7 天每天的条数
-  const weekly = useMemo(() => history.length, [history]);
+  const weekly = useMemo(() => buildWeeklyUsage(history), [history]);
+  const weeklyTotals = useMemo(() => {
+    const sessions = weekly.reduce((sum, day) => sum + day.sessions, 0);
+    const chars = weekly.reduce((sum, day) => sum + day.chars, 0);
+    const activeDays = weekly.filter(day => day.sessions > 0).length;
+    return { sessions, chars, activeDays };
+  }, [weekly]);
 
   const asrProviderId = creds.activeAsrProvider || DEFAULT_ASR_PROVIDER_ID;
   const llmProviderId = creds.activeLlmProvider || DEFAULT_LLM_PROVIDER_ID;
@@ -162,21 +167,23 @@ export function Overview({ onOpenHistory, onOpenSettings }: OverviewProps) {
         <PreviewCard className="wi-week-card">
           <div className="wi-overview-card-head">
             <span>{t('overview.weekTitle')}</span>
-            <div className="wi-segment-mini">
-              <span className="active">{t('overview.weekRange7')}</span>
-              <span>{t('overview.weekRange30')}</span>
-              <span>{t('overview.weekRangeAll')}</span>
-            </div>
+            <span className="wi-overview-card-unit">{t('overview.weekUnit')}</span>
           </div>
           {historyError ? (
             <div className="wi-overview-empty">
               {t('overview.historyLoadError')}
             </div>
           ) : (
-            <WeekChart hasData={weekly > 0} />
+            <WeekChart days={weekly} />
           )}
           <div className="wi-chart-note">
-            {t('overview.weekNote')}
+            {weeklyTotals.sessions > 0
+              ? t('overview.weekNote', {
+                  count: weeklyTotals.sessions,
+                  chars: weeklyTotals.chars.toLocaleString(),
+                  days: weeklyTotals.activeDays,
+                })
+              : t('overview.weekNoteEmpty')}
           </div>
         </PreviewCard>
 
@@ -277,22 +284,38 @@ function Metric({ iconLabel, label, value, trend, accent, tone = 'blue' }: Metri
   );
 }
 
-function WeekChart({ hasData }: { hasData: boolean }) {
+function WeekChart({ days }: { days: WeeklyUsageDay[] }) {
+  const { t } = useTranslation();
+  const maxSessions = Math.max(1, ...days.map(day => day.sessions));
+  const hasData = days.some(day => day.sessions > 0);
+
   return (
     <div className="wi-week-chart">
-      <svg viewBox="0 0 650 260" width="100%" height="100%" aria-hidden="true">
-        <defs>
-          <linearGradient id="wi-area-trend" x1="0" y1="0" x2="0" y2="1">
-            <stop stopColor="#0f6fff" stopOpacity={hasData ? 0.2 : 0.1} />
-            <stop offset="1" stopColor="#0f6fff" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <g stroke="#e8eef6">
-          <path d="M50 30H615M50 76H615M50 122H615M50 168H615M50 214H615" />
-        </g>
-        <path d="M62 182 C118 124,157 96,226 151 S337 139,407 70 S525 185,604 151 L604 230 L62 230Z" fill="url(#wi-area-trend)" />
-        <path d="M62 182 C118 124,157 96,226 151 S337 139,407 70 S525 185,604 151" stroke="#0f6fff" strokeWidth="3" fill="none" opacity={hasData ? 1 : 0.58} />
-      </svg>
+      {!hasData && <div className="wi-week-empty">{t('overview.weekEmpty')}</div>}
+      <div className="wi-week-bars" aria-label={t('overview.weekTitle')}>
+        {days.map(day => {
+          const height = day.sessions === 0 ? 6 : Math.max(18, Math.round((day.sessions / maxSessions) * 128));
+          return (
+            <div
+              className={`wi-week-bar-group ${day.isToday ? 'wi-week-bar-group-today' : ''}`}
+              key={day.key}
+              title={`${day.label}: ${t('overview.metricSegments', { count: day.sessions })} · ${day.chars.toLocaleString()} ${t('overview.metricChars')}`}
+            >
+              <span className={`wi-week-value ${day.isToday ? 'wi-week-value-today' : ''}`}>
+                {day.sessions}
+              </span>
+              <div className="wi-week-bar-track">
+                <span
+                  className={`wi-week-bar ${day.sessions === 0 ? 'wi-week-bar-empty' : ''} ${day.isToday ? 'wi-week-bar-today' : ''}`}
+                  style={{ height }}
+                />
+              </div>
+              <span className="wi-week-date">{day.label}</span>
+              <span className="wi-week-label">{day.shortLabel}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

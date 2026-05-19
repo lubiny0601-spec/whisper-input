@@ -1,4 +1,4 @@
-import { buildOverviewMetrics } from './overviewMetrics';
+import { buildOverviewMetrics, buildWeeklyUsage } from './overviewMetrics';
 import type { DictationSession } from './types';
 
 function assertEqual<T>(actual: T, expected: T, name: string) {
@@ -61,3 +61,42 @@ assertEqual(metrics.avgLatencyMs, 600, 'averages today durations with null as ze
 
 const emptyMetrics = buildOverviewMetrics([], new Date(2026, 4, 15, 16));
 assertEqual(emptyMetrics.avgLatencyMs, 0, 'empty history average is zero');
+
+const weekly = buildWeeklyUsage(
+  [
+    session({
+      id: 'week-start',
+      createdAt: localIso(2026, 5, 9, 8),
+      finalText: '一二三',
+      durationMs: 1000,
+    }),
+    session({
+      id: 'outside-range',
+      createdAt: localIso(2026, 5, 8, 23, 59),
+      finalText: '不计入',
+      durationMs: 9999,
+    }),
+    session({
+      id: 'today-1',
+      createdAt: localIso(2026, 5, 15, 10),
+      finalText: 'hello',
+      durationMs: 2000,
+    }),
+    session({
+      id: 'today-2',
+      createdAt: localIso(2026, 5, 15, 18),
+      finalText: '世界',
+      durationMs: null,
+    }),
+  ],
+  new Date(2026, 4, 15, 21),
+);
+
+assertEqual(weekly.length, 7, 'weekly usage always returns seven days');
+assertEqual(weekly[0].label, '5/9', 'weekly usage starts six days before reference day');
+assertEqual(weekly[0].sessions, 1, 'weekly usage counts first in-range day');
+assertEqual(weekly[0].chars, 3, 'weekly usage sums chars per day');
+assertEqual(weekly[6].sessions, 2, 'weekly usage counts today sessions');
+assertEqual(weekly[6].chars, 7, 'weekly usage sums today chars');
+assertEqual(weekly[6].durationMs, 2000, 'weekly usage treats null duration as zero');
+assertEqual(weekly[6].isToday, true, 'weekly usage marks final bucket as today');

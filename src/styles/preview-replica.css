@@ -944,7 +944,7 @@
 
 .wi-week-card {
   display: grid;
-  grid-template-rows: auto 254px auto;
+  grid-template-rows: auto minmax(210px, 1fr) auto;
   overflow: hidden;
 }
 
@@ -1001,11 +1001,18 @@
 }
 
 .wi-week-chart {
+  position: relative;
   min-height: 0;
-  height: 254px;
   border: 1px solid var(--wi-line-soft);
   border-radius: 12px;
-  background: linear-gradient(180deg, #fff, #fbfdff);
+  background:
+    repeating-linear-gradient(
+      to top,
+      transparent 0,
+      transparent 49px,
+      rgba(148, 163, 184, 0.17) 50px
+    ),
+    linear-gradient(180deg, #fff, #fbfdff);
   overflow: hidden;
 }
 
@@ -1048,46 +1055,95 @@
   background: var(--wi-control);
 }
 
+.wi-week-bars {
+  position: absolute;
+  inset: 18px 18px 14px;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  align-items: end;
+  gap: 12px;
+}
+
 .wi-week-bar-group {
-  flex: 1 1 0;
   min-width: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.wi-week-bar-group-today {
+  color: var(--wi-blue);
 }
 
 .wi-week-value {
   color: var(--wi-muted);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .wi-week-value-today {
   color: var(--wi-blue);
 }
 
+.wi-week-bar-track {
+  width: 100%;
+  min-width: 0;
+  height: 138px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  border-radius: 9px;
+  background: rgba(226, 232, 240, 0.48);
+  overflow: hidden;
+}
+
 .wi-week-bar {
+  display: block;
   width: 100%;
   min-height: 3px;
-  border-radius: 6px 6px 0 0;
-  background: var(--wi-text);
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(180deg, #0f6fff, #5aa7ff);
   transition: height 0.18s var(--ol-motion-soft), opacity 0.18s var(--ol-motion-soft);
 }
 
-.wi-week-bar-today {
-  background: var(--wi-blue);
+.wi-week-bar-empty {
+  background: #cbd5e1;
+  opacity: 0.55;
 }
 
-.wi-week-labels {
-  flex: 0 0 auto;
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 12px;
+.wi-week-bar-today {
+  background: linear-gradient(180deg, #16a34a, #86efac);
+}
+
+.wi-week-date,
+.wi-week-label {
   color: var(--wi-muted);
   font-size: 12px;
   font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.wi-week-date {
+  color: #334155;
+}
+
+.wi-week-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+  pointer-events: none;
+  color: var(--wi-muted);
+  font-size: 14px;
+  font-weight: 650;
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .wi-recent-list {
