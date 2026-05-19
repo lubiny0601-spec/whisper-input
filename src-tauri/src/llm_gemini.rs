@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 
 use crate::polish::{
     clean_polish_output, compose_polish_prompts, compose_qa_system_prompt,
-    compose_translate_prompts, safe_str_slice, LLMError,
+    compose_translate_prompts, normalize_polish_layout, safe_str_slice, LLMError,
 };
 use crate::types::{ChineseScriptPreference, OutputLanguagePreference, PolishMode, QaChatMessage};
 
@@ -114,7 +114,7 @@ impl GeminiProvider {
 
         let body_text = self.send_unary(&url, &body).await?;
         let raw = extract_assistant_content(&body_text)?;
-        Ok(clean_polish_output(&raw))
+        Ok(normalize_polish_layout(mode, &clean_polish_output(&raw)))
     }
 
     pub async fn polish_streaming<F, C>(
@@ -159,7 +159,7 @@ impl GeminiProvider {
         let raw = self
             .send_streaming(&url, &body, on_delta, should_cancel)
             .await?;
-        Ok(clean_polish_output(&raw))
+        Ok(normalize_polish_layout(mode, &clean_polish_output(&raw)))
     }
 
     pub async fn translate_to(

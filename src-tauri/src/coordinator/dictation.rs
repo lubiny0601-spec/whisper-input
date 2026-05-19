@@ -75,6 +75,18 @@ fn dictation_output_operation(prefs: &UserPreferences) -> DictationOutputOperati
     }
 }
 
+fn should_stream_polish_insert(
+    prefs: &UserPreferences,
+    translation_active: bool,
+    output_operation: DictationOutputOperation,
+    mode: PolishMode,
+) -> bool {
+    prefs.streaming_insert
+        && !translation_active
+        && output_operation != DictationOutputOperation::TranslateToEnglish
+        && mode == PolishMode::Light
+}
+
 #[cfg(target_os = "windows")]
 fn tsf_experiment_enabled() -> bool {
     matches!(
@@ -1627,12 +1639,12 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
     } else {
         Vec::new()
     };
-    // 流式插入 opt-in 路径：开关打开 + 非翻译 + 非 Raw 模式 → 进入流式分支。
+    // 流式插入 opt-in 路径：开关打开 + 非翻译 + 轻度润色 → 进入流式分支。
+    // 清晰结构 / 正式表达需要完整文本后做编号和段落版式归一化；逐字 delta
+    // 已经落到光标后无法可靠回填换行，因此这两种模式走一次性插入路径。
     // 任何不满足都走原一次性 polish_or_passthrough 路径，行为跟历史完全一致。
-    let streaming_eligible = prefs.streaming_insert
-        && !translation_active
-        && !output_preference_translation_active
-        && mode != PolishMode::Raw;
+    let streaming_eligible =
+        should_stream_polish_insert(&prefs, translation_active, output_operation, mode);
     log::info!(
         "[coord] polish dispatch: translation={translation_active} output_operation={output_operation:?} mode={mode:?} stream_enabled={} streaming_eligible={streaming_eligible} active_llm={}",
         prefs.streaming_insert,
@@ -1966,9 +1978,9 @@ pub(super) fn cancel_session(inner: &Arc<Inner>) {
 mod tests {
     use super::{
         asr_transcript_has_no_speech, dictation_output_operation, qingyu_local_asr_readiness_error,
-        DictationOutputOperation,
+        should_stream_polish_insert, DictationOutputOperation,
     };
-    use crate::types::{OutputLanguagePreference, UserPreferences};
+    use crate::types::{OutputLanguagePreference, PolishMode, UserPreferences};
 
     #[test]
     fn english_output_preference_routes_chinese_asr_text_to_translation() {
@@ -2007,6 +2019,60 @@ mod tests {
             dictation_output_operation(&prefs),
             DictationOutputOperation::Polish
         );
+    }
+
+    #[test]
+    fn streaming_insert_only_applies_to_light_polish() {
+        let prefs = UserPreferences {
+            streaming_insert: true,
+            ..UserPreferences::default()
+        };
+
+        assert!(should_stream_polish_insert(
+            &prefs,
+            false,
+            DictationOutputOperation::Polish,
+            PolishMode::Light
+        ));
+        assert!(!should_stream_polish_insert(
+            &prefs,
+            false,
+            DictationOutputOperation::Polish,
+            PolishMode::Structured
+        ));
+        assert!(!should_stream_polish_insert(
+            &prefs,
+            false,
+            DictationOutputOperation::Polish,
+            PolishMode::Formal
+        ));
+        assert!(!should_stream_polish_insert(
+            &prefs,
+            false,
+            DictationOutputOperation::Polish,
+            PolishMode::Raw
+        ));
+    }
+
+    #[test]
+    fn streaming_insert_stays_disabled_for_translation_paths() {
+        let prefs = UserPreferences {
+            streaming_insert: true,
+            ..UserPreferences::default()
+        };
+
+        assert!(!should_stream_polish_insert(
+            &prefs,
+            true,
+            DictationOutputOperation::Polish,
+            PolishMode::Light
+        ));
+        assert!(!should_stream_polish_insert(
+            &prefs,
+            false,
+            DictationOutputOperation::TranslateToEnglish,
+            PolishMode::Light
+        ));
     }
 
     #[test]

@@ -354,12 +354,13 @@ impl OpenAICompatibleLLMProvider {
             front_app,
             !prior_turns.is_empty(),
         );
-        if prior_turns.is_empty() {
+        let polished = if prior_turns.is_empty() {
             self.chat_completion(&system_prompt, &user_prompt).await
         } else {
             self.chat_completion_with_polish_history(&system_prompt, prior_turns, &user_prompt)
                 .await
-        }
+        }?;
+        Ok(normalize_polish_layout(mode, &polished))
     }
 
     /// 润色路径的**流式**变体。Prompts 与 `polish()` 完全同源（共用 `compose_polish_prompts`
@@ -401,8 +402,10 @@ impl OpenAICompatibleLLMProvider {
             prior_turns.len(),
             raw_text.chars().count()
         );
-        self.chat_completion_messages_streaming(messages, on_delta, should_cancel)
-            .await
+        let polished = self
+            .chat_completion_messages_streaming(messages, on_delta, should_cancel)
+            .await?;
+        Ok(normalize_polish_layout(mode, &polished))
     }
 
     /// 多轮划词追问，**流式**返回。`messages` 包含历史对话（user/assistant 交替），
@@ -1687,7 +1690,7 @@ pub(crate) fn build_voice_input_system_prompt(variant: VoicePromptVariant) -> St
              - 处理改口：遇到“不是、改成、我重新说、前面那句不要”等改口，以最后有效表达为准。\n\
              - 标点：按语义补逗号、句号、问号、冒号；不要过度排版短句聊天。\n\
              - 口述标点：把“逗号、句号、冒号、换行、左括号、右括号、引号”等按上下文转成符号或换行。\n\
-             - 数字金额：保留数字、日期、时间、百分比、金额单位和币种，如 3.5 万、20%、2026 年 5 月。\n\
+             - 数字金额：保留数字、日期、时间、百分比、金额单位、币种和版本 / 方案号，如 3.5 万、20%、2026 年 5 月、1.0 方案；不要把 1.0、2.5 这类小数写成“一点零”“二点五”。\n\
              - 列表：用户明显口述多项任务时可整理为简洁列表；普通短句不要强行列表化。\n\
              - 技术类文字：保留路径、文件名、按钮文案、API、CLI、代码符号、英文术语和大小写。\n\
              - 中英混排：保留 GitHub、Gemini、Qwen、OpenLess 等英文术语，不要硬翻译。\n\
@@ -1802,6 +1805,326 @@ pub(crate) fn clean_polish_output(content: &str) -> String {
         }
     }
 
+    output.trim().to_string()
+}
+
+pub(crate) fn normalize_polish_layout(mode: PolishMode, content: &str) -> String {
+    let decimal_normalized = normalize_spoken_decimal_numbers(content);
+    if !matches!(mode, PolishMode::Structured | PolishMode::Formal) {
+        return decimal_normalized;
+    }
+    normalize_numbered_blocks(&decimal_normalized)
+}
+
+fn normalize_spoken_decimal_numbers(content: &str) -> String {
+    let chars: Vec<char> = content.chars().collect();
+    let mut output = String::with_capacity(content.len());
+    let mut i = 0;
+
+    while i < chars.len() {
+        if let Some(decimal) = parse_spoken_decimal_number(&chars, i) {
+            output.push_str(&decimal.replacement);
+            i = decimal.end;
+            continue;
+        }
+        output.push(chars[i]);
+        i += 1;
+    }
+
+    output
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SpokenDecimalNumber {
+    replacement: String,
+    end: usize,
+}
+
+fn parse_spoken_decimal_number(chars: &[char], start: usize) -> Option<SpokenDecimalNumber> {
+    if start > 0 && is_ascii_alnum(chars[start - 1]) {
+        return None;
+    }
+
+    let (integer, mut cursor) = parse_chinese_integer_number(chars, start)?;
+    if chars.get(cursor) != Some(&'点') {
+        return None;
+    }
+    cursor += 1;
+
+    let decimal_start = cursor;
+    let mut decimal_digits = String::new();
+    while let Some(ch) = chars.get(cursor).copied() {
+        let Some(digit) = chinese_digit_value(ch) else {
+            break;
+        };
+        decimal_digits.push(char::from(b'0' + digit as u8));
+        cursor += 1;
+    }
+    if cursor == decimal_start || !has_decimal_number_context(chars, cursor) {
+        return None;
+    }
+
+    Some(SpokenDecimalNumber {
+        replacement: format!("{integer}.{decimal_digits}"),
+        end: cursor,
+    })
+}
+
+fn parse_chinese_integer_number(chars: &[char], start: usize) -> Option<(u32, usize)> {
+    let first = chars.get(start).copied()?;
+
+    if first == '十' {
+        let mut cursor = start + 1;
+        let ones = chars
+            .get(cursor)
+            .copied()
+            .and_then(chinese_digit_value)
+            .unwrap_or(0);
+        if ones > 0 {
+            cursor += 1;
+        }
+        return Some((10 + ones, cursor));
+    }
+
+    let tens_or_digit = chinese_digit_value(first)?;
+    let mut cursor = start + 1;
+    if chars.get(cursor) == Some(&'十') {
+        cursor += 1;
+        let ones = chars
+            .get(cursor)
+            .copied()
+            .and_then(chinese_digit_value)
+            .unwrap_or(0);
+        if ones > 0 {
+            cursor += 1;
+        }
+        return Some((tens_or_digit * 10 + ones, cursor));
+    }
+
+    Some((tens_or_digit, cursor))
+}
+
+fn chinese_digit_value(ch: char) -> Option<u32> {
+    match ch {
+        '零' | '〇' => Some(0),
+        '一' => Some(1),
+        '二' | '两' => Some(2),
+        '三' => Some(3),
+        '四' => Some(4),
+        '五' => Some(5),
+        '六' => Some(6),
+        '七' => Some(7),
+        '八' => Some(8),
+        '九' => Some(9),
+        _ => None,
+    }
+}
+
+fn has_decimal_number_context(chars: &[char], cursor: usize) -> bool {
+    if cursor >= chars.len() {
+        return true;
+    }
+
+    let rest: String = chars[cursor..].iter().take(12).collect();
+    if rest.starts_with('的') {
+        return has_decimal_context_keyword(&rest[3..]);
+    }
+    if rest.starts_with('版') {
+        return true;
+    }
+    if rest
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_alphabetic() || matches!(ch, '-' | '_' | '/' | '\\'))
+    {
+        return true;
+    }
+    has_decimal_context_keyword(&rest)
+}
+
+fn has_decimal_context_keyword(rest: &str) -> bool {
+    const KEYWORDS: &[&str] = &[
+        "方案",
+        "版本",
+        "版本号",
+        "模型",
+        "系统",
+        "功能",
+        "产品",
+        "项目",
+        "模块",
+        "接口",
+        "页面",
+        "计划",
+        "文档",
+        "报告",
+        "规范",
+        "协议",
+        "迭代",
+        "阶段",
+        "需求",
+        "补丁",
+        "更新",
+        "客户端",
+        "服务端",
+        "后台",
+        "前端",
+        "后端",
+        "流程",
+        "策略",
+    ];
+    KEYWORDS.iter().any(|keyword| rest.starts_with(keyword))
+}
+
+fn normalize_numbered_blocks(content: &str) -> String {
+    let chars: Vec<char> = content.trim().chars().collect();
+    let mut output = String::with_capacity(content.len() + 16);
+    let mut i = 0;
+
+    while i < chars.len() {
+        if let Some(marker) = parse_numbered_marker(&chars, i) {
+            match marker.kind {
+                NumberedMarkerKind::TopLevel => ensure_blank_line_before(&mut output),
+                NumberedMarkerKind::SubLevel => ensure_line_break_before(&mut output),
+            }
+        }
+        output.push(chars[i]);
+        i += 1;
+    }
+
+    collapse_layout_blank_lines(&output)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NumberedMarkerKind {
+    TopLevel,
+    SubLevel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NumberedMarker {
+    kind: NumberedMarkerKind,
+}
+
+fn parse_numbered_marker(chars: &[char], start: usize) -> Option<NumberedMarker> {
+    if start > 0 && is_ascii_alnum(chars[start - 1]) {
+        return None;
+    }
+
+    let (first, mut cursor) = parse_marker_number(chars, start)?;
+    if first == 0 || first > 20 || chars.get(cursor) != Some(&'.') {
+        return None;
+    }
+    cursor += 1;
+
+    if let Some((second, after_second)) = parse_marker_number(chars, cursor) {
+        if second == 0 || second > 20 || !is_marker_boundary(chars, after_second) {
+            return None;
+        }
+        return Some(NumberedMarker {
+            kind: NumberedMarkerKind::SubLevel,
+        });
+    }
+
+    if !is_marker_boundary(chars, cursor) {
+        return None;
+    }
+    Some(NumberedMarker {
+        kind: NumberedMarkerKind::TopLevel,
+    })
+}
+
+fn parse_marker_number(chars: &[char], start: usize) -> Option<(u32, usize)> {
+    let mut cursor = start;
+    let mut value = 0u32;
+    let mut len = 0usize;
+    while let Some(ch) = chars.get(cursor) {
+        if !ch.is_ascii_digit() || len >= 2 {
+            break;
+        }
+        value = value * 10 + ch.to_digit(10)?;
+        cursor += 1;
+        len += 1;
+    }
+    (len > 0).then_some((value, cursor))
+}
+
+fn is_marker_boundary(chars: &[char], cursor: usize) -> bool {
+    let Some(ch) = chars.get(cursor).copied() else {
+        return false;
+    };
+    if ch.is_whitespace() || ch == '　' {
+        return true;
+    }
+    is_cjk_or_opening_punctuation(ch)
+}
+
+fn is_cjk_or_opening_punctuation(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{3400}'..='\u{4DBF}'
+            | '\u{4E00}'..='\u{9FFF}'
+            | '\u{F900}'..='\u{FAFF}'
+            | '\u{3040}'..='\u{30FF}'
+            | '\u{AC00}'..='\u{D7AF}'
+            | '（'
+            | '('
+            | '《'
+            | '“'
+            | '"'
+            | '\''
+    )
+}
+
+fn is_ascii_alnum(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_'
+}
+
+fn ensure_blank_line_before(output: &mut String) {
+    trim_trailing_inline_space(output);
+    if output.is_empty() || output.ends_with("\n\n") {
+        return;
+    }
+    if output.ends_with('\n') {
+        output.push('\n');
+    } else {
+        output.push_str("\n\n");
+    }
+}
+
+fn ensure_line_break_before(output: &mut String) {
+    trim_trailing_inline_space(output);
+    if output.is_empty() || output.ends_with('\n') {
+        return;
+    }
+    output.push('\n');
+}
+
+fn trim_trailing_inline_space(output: &mut String) {
+    while output.ends_with(' ') || output.ends_with('\t') || output.ends_with('　') {
+        output.pop();
+    }
+}
+
+fn collapse_layout_blank_lines(content: &str) -> String {
+    let mut output = String::with_capacity(content.len());
+    let mut newline_count = 0usize;
+    for line in content.lines() {
+        let trimmed = line.trim_end();
+        if trimmed.is_empty() {
+            newline_count += 1;
+            continue;
+        }
+        if !output.is_empty() {
+            if newline_count > 0 {
+                output.push_str("\n\n");
+            } else {
+                output.push('\n');
+            }
+        }
+        output.push_str(trimmed);
+        newline_count = 0;
+    }
     output.trim().to_string()
 }
 
@@ -1986,7 +2309,7 @@ pub mod prompts {
 
     const COMMON_RULES: &str = "# 通用规则\n\
         1) \u{4E0D}确定 / 转写明显不完整 / 断句在半截 \u{2192} 保留原话，\u{4E0D}要替用户补全或猜测。\n\
-        2) 中英混输、专有名词、产品名、代码 / 命令 / 路径 / URL、数字与单位、emoji \u{2192} 原样保留。\n\
+        2) 中英混输、专有名词、产品名、代码 / 命令 / 路径 / URL、数字与单位、版本号 / 方案号、emoji \u{2192} 原样保留；1.0、2.5 这类小数不得改写成中文读法。\n\
         3) \u{4E0D}引入用户没说过的事实；中途改口以最终版本为准。组织方式完全服从当前 mode：原文 / 轻度润色不主动重组，清晰结构才做层级编号，正式表达才做正式文体。\n\
         4) 如果原始转写本身是在\u{201C}询问 / 要求别人做某事\u{201D}，只整理为清楚的问题或请求，\u{4E0D}代替对方回答。\n\
         5) 自动纠错：明显的 ASR 同音 / 形近错字按上下文纠回正确字面，常见模式包括\
@@ -1996,6 +2319,9 @@ pub mod prompts {
 
     const OUTPUT_BLOCK: &str = "# 输出\n\
         直接输出最终文本正文。需要结构化时直接从标题 / 段落 / 编号开始。\n\
+        当前 mode 是清晰结构或正式表达，且输出包含标题、小标题或编号时，必须保留真实换行：\
+        标题 / 事由句后空一行；每个一级编号单独一行；每个二级编号单独一行；不同一级主题之间空一行。\
+        禁止把“1.”“1.1”“2.”等编号压在同一段连续文本里。\n\
         禁止以\u{201C}根据你/您给的内容\u{201D}\u{201C}我整理如下\u{201D}\u{201C}以下是整理后的内容\u{201D}\u{201C}优化如下\u{201D}\u{201C}结构化整理如下\u{201D}等句式开头。\n\
         \u{4E0D}加解释、总结、客套话、代码围栏（\\`\\`\\`）或 markdown 元注释。";
 
@@ -2040,6 +2366,8 @@ pub mod prompts {
                 编号结构（主清单标准写法）：\n\
                 - 第一层（主题）：行首用 \"1.\" \"2.\" \"3.\" \u{2026}，每个主题一行短标题（4\u{2013}8 字最佳）；\n\
                 - 第二层（子项）：另起一行，行首用 \"1.1\" \"1.2\" \"2.1\" \u{2026}，每条一句完整陈述。\n\
+                - 段落格式：首行过渡 / 标题后空一行；每个一级主题块之间空一行；\
+                一级主题和二级子项都必须各占独立行，不能输出成一整段连续文字。\n\
                 顶层\u{4E0D}使用半括号写法（如 \"1)\" \"2)\"）；不使用 (a)(b)(c) 作为默认子项编号；不在子项内再嵌第三层。\n\
                 \n\
                 事项 \u{2264}2 条 \u{2192} 直接输出连贯段落，\u{4E0D}硬塞层级。\n\
@@ -2128,6 +2456,8 @@ pub mod prompts {
                 只要不是极短句，也必须转成正式书面说明。\n\
                 无明确收件人也必须输出标题和编号小标题：标题用“关于 X 的正式说明 / 工作安排 / 问题反馈 / 审查请求”，\
                 正文至少包含“1. 背景 / 事项概述”和“2. 处理要求 / 后续安排”等结构。不得只输出一段话。\n\
+                正式文档的段落格式必须清楚：标题、称呼、事由句、一级小标题、正文段落各自独立成行；\
+                标题或事由句之后空一行，不同一级小标题之间空一行，禁止把所有编号压成一段连续文本。\n\
                 只要输入超过极短短句，且包含问题、bug、反馈、测试、检查、分析、修复、方案、要求、建议、确认等语义，\
                 必须使用“事由 / 背景 / 问题描述 / 初步判断 / 处理请求 / 后续安排”等合适的小标题或编号结构。\
                 小标题应贴合原文，不要求每次机械包含全部栏目；但至少要体现正式文档层级。\n\
@@ -2838,6 +3168,55 @@ mod tests {
         let content = "<think>one</think>第一句。<think>two</think>第二句。";
 
         assert_eq!(clean_polish_output(content), "第一句。第二句。");
+    }
+
+    #[test]
+    fn structured_layout_restores_collapsed_numbered_paragraphs_from_real_output() {
+        let collapsed = "确认核心合作医院名单及进度：1. 核心医院范围1.1 确定齐鲁医院、青医（青岛大学附属医院）为最核心合作对象。1.2 明确这三家医院是重点推进目标，其他录取医院暂不纳入首批。2. 准入政策与通道2.1 因特殊时期（七一）及原被踢出情况，目前暂无艾莎声音接入。2.2 齐鲁医院药学部承诺：只要进入分优录，即列入限制级并打通双通道。3. 门诊开通进度3.1 三大二院已于昨日成功打通。3.2 剩余齐鲁、青医等几家门诊将陆续完成开通。";
+
+        let formatted = normalize_polish_layout(PolishMode::Structured, collapsed);
+
+        assert_eq!(
+            formatted,
+            "确认核心合作医院名单及进度：\n\n1. 核心医院范围\n1.1 确定齐鲁医院、青医（青岛大学附属医院）为最核心合作对象。\n1.2 明确这三家医院是重点推进目标，其他录取医院暂不纳入首批。\n\n2. 准入政策与通道\n2.1 因特殊时期（七一）及原被踢出情况，目前暂无艾莎声音接入。\n2.2 齐鲁医院药学部承诺：只要进入分优录，即列入限制级并打通双通道。\n\n3. 门诊开通进度\n3.1 三大二院已于昨日成功打通。\n3.2 剩余齐鲁、青医等几家门诊将陆续完成开通。"
+        );
+    }
+
+    #[test]
+    fn structured_layout_restores_collapsed_numbered_output_without_marker_spaces() {
+        let collapsed = "泾沟通重点梳理血液医院业务及复盘机制，主要包含以下内容：1. 重点客户覆盖1.1 聚焦几家核心血液医院。1.2 以 Back Case 形式与客户进行沟通。2. 新专员复盘机制2.1 每次复盘选取一个优秀案例和一个落后案例进行对比分析。2.2 针对进展落后的案例，识别大家在掌机会与方向上的差异。3. 能力差距与改进3.1 若发现存在 Gap，需加强全流程覆盖能力的建设。";
+
+        let formatted = normalize_polish_layout(PolishMode::Structured, collapsed);
+
+        assert_eq!(
+            formatted,
+            "泾沟通重点梳理血液医院业务及复盘机制，主要包含以下内容：\n\n1. 重点客户覆盖\n1.1 聚焦几家核心血液医院。\n1.2 以 Back Case 形式与客户进行沟通。\n\n2. 新专员复盘机制\n2.1 每次复盘选取一个优秀案例和一个落后案例进行对比分析。\n2.2 针对进展落后的案例，识别大家在掌机会与方向上的差异。\n\n3. 能力差距与改进\n3.1 若发现存在 Gap，需加强全流程覆盖能力的建设。"
+        );
+    }
+
+    #[test]
+    fn raw_and_light_modes_do_not_apply_numbered_layout_repair() {
+        let text = "确认事项：1. 范围1.1 齐鲁医院。2. 进度2.1 昨日完成。";
+
+        assert_eq!(normalize_polish_layout(PolishMode::Raw, text), text);
+        assert_eq!(normalize_polish_layout(PolishMode::Light, text), text);
+    }
+
+    #[test]
+    fn polish_layout_restores_spoken_decimal_version_numbers() {
+        let text = "请确认一点零方案，并同步二点五版本的风险。";
+
+        assert_eq!(
+            normalize_polish_layout(PolishMode::Structured, text),
+            "请确认1.0方案，并同步2.5版本的风险。"
+        );
+    }
+
+    #[test]
+    fn spoken_decimal_normalization_avoids_non_numeric_context() {
+        let text = "我现在还有一点零食，下午再讨论一点想法。";
+
+        assert_eq!(normalize_polish_layout(PolishMode::Light, text), text);
     }
 
     #[test]
