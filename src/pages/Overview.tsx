@@ -286,38 +286,81 @@ function Metric({ iconLabel, label, value, trend, accent, tone = 'blue' }: Metri
 
 function WeekChart({ days }: { days: WeeklyUsageDay[] }) {
   const { t } = useTranslation();
-  const maxSessions = Math.max(1, ...days.map(day => day.sessions));
+  const maxChars = Math.max(1, ...days.map(day => day.chars));
+  const axisMax = niceAxisMax(maxChars);
   const hasData = days.some(day => day.sessions > 0);
+  const chartWidth = 320;
+  const chartHeight = 118;
+  const padX = 12;
+  const padY = 18;
+  const innerWidth = chartWidth - padX * 2;
+  const innerHeight = chartHeight - padY * 2;
+  const points = days.map((day, index) => {
+    const x = padX + (innerWidth / Math.max(1, days.length - 1)) * index;
+    const y = padY + (1 - day.chars / axisMax) * innerHeight;
+    return { day, x, y };
+  });
+  const linePath = points.map((point, index) => {
+    if (index === 0) return `M ${point.x} ${point.y}`;
+    const previous = points[index - 1];
+    const dx = (point.x - previous.x) / 2;
+    return `C ${previous.x + dx} ${previous.y}, ${point.x - dx} ${point.y}, ${point.x} ${point.y}`;
+  }).join(' ');
+  const areaPath = points.length > 0
+    ? `${linePath} L ${points[points.length - 1].x} ${chartHeight - padY} L ${points[0].x} ${chartHeight - padY} Z`
+    : '';
 
   return (
     <div className="wi-week-chart">
       {!hasData && <div className="wi-week-empty">{t('overview.weekEmpty')}</div>}
-      <div className="wi-week-bars" aria-label={t('overview.weekTitle')}>
-        {days.map(day => {
-          const height = day.sessions === 0 ? 6 : Math.max(18, Math.round((day.sessions / maxSessions) * 128));
-          return (
+      <div className="wi-week-line-chart" aria-label={t('overview.weekTitle')}>
+        <div className="wi-week-y-axis" aria-hidden>
+          <span>{axisMax.toLocaleString()}</span>
+          <span>{Math.round(axisMax / 2).toLocaleString()}</span>
+          <span>0</span>
+        </div>
+        <div className="wi-week-line-plot">
+          <svg className="wi-week-line-svg" viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="none">
+            <line className="wi-week-grid-line" x1="0" y1={padY} x2={chartWidth} y2={padY} />
+            <line className="wi-week-grid-line" x1="0" y1={chartHeight / 2} x2={chartWidth} y2={chartHeight / 2} />
+            <line className="wi-week-grid-line" x1="0" y1={chartHeight - padY} x2={chartWidth} y2={chartHeight - padY} />
+            {hasData && <path className="wi-week-area" d={areaPath} />}
+            {hasData && <path className="wi-week-line" d={linePath} />}
+          </svg>
+          {points.map(point => (
             <div
-              className={`wi-week-bar-group ${day.isToday ? 'wi-week-bar-group-today' : ''}`}
-              key={day.key}
-              title={`${day.label}: ${t('overview.metricSegments', { count: day.sessions })} · ${day.chars.toLocaleString()} ${t('overview.metricChars')}`}
+              className={`wi-week-point ${point.day.isToday ? 'wi-week-point-today' : ''}`}
+              key={point.day.key}
+              style={{
+                left: `${(point.x / chartWidth) * 100}%`,
+                top: `${(point.y / chartHeight) * 100}%`,
+              }}
+              title={`${point.day.label}: ${t('overview.metricSegments', { count: point.day.sessions })} · ${point.day.chars.toLocaleString()} ${t('overview.metricChars')}`}
             >
-              <span className={`wi-week-value ${day.isToday ? 'wi-week-value-today' : ''}`}>
-                {day.sessions}
-              </span>
-              <div className="wi-week-bar-track">
-                <span
-                  className={`wi-week-bar ${day.sessions === 0 ? 'wi-week-bar-empty' : ''} ${day.isToday ? 'wi-week-bar-today' : ''}`}
-                  style={{ height }}
-                />
-              </div>
+              <span className="wi-week-point-value">{point.day.chars.toLocaleString()}</span>
+              <span className="wi-week-point-dot" />
+            </div>
+          ))}
+        </div>
+        <div className="wi-week-axis">
+          {days.map(day => (
+            <div className={`wi-week-axis-day ${day.isToday ? 'wi-week-axis-day-today' : ''}`} key={day.key}>
               <span className="wi-week-date">{day.label}</span>
               <span className="wi-week-label">{day.shortLabel}</span>
             </div>
-          );
-        })}
+          ))}
+        </div>
       </div>
     </div>
   );
+}
+
+function niceAxisMax(value: number): number {
+  if (value <= 0) return 1;
+  const magnitude = 10 ** Math.floor(Math.log10(value));
+  const normalized = value / magnitude;
+  const nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return nice * magnitude;
 }
 
 function RecentRow({

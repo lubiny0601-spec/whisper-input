@@ -168,7 +168,7 @@ export const ko: typeof zhCN = {
     weekNote: '최근 7일 동안 {{count}}개 세그먼트, {{chars}}자, {{days}}일의 활동 기록이 있습니다.',
     weekNoteEmpty: '최근 7일 동안 음성 입력 기록이 없습니다.',
     weekEmpty: '최근 7일 기록 없음',
-    weekUnit: '실제 기록 · 세그먼트/일',
+    weekUnit: '실제 기록 · 글자 수/일',
     recentTitle: '최근 인식',
     recentAll: '전체 보기 →',
     recentEmpty: '아직 기록이 없습니다. {{trigger}} 를 눌러 첫 녹음을 시작하세요.',

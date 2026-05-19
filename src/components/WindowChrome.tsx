@@ -232,7 +232,7 @@ async function runWindowsWindowAction(action: 'minimize' | 'toggleMaximize' | 'c
     } else if (action === 'toggleMaximize') {
       await currentWindow.toggleMaximize();
     } else {
-      await currentWindow.close();
+      await currentWindow.hide();
     }
   } catch (error) {
     console.warn(`[window] Windows title button ${action} failed`, error);

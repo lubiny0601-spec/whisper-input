@@ -168,7 +168,7 @@ export const ja: typeof zhCN = {
     weekNote: '直近 7 日で {{count}} セグメント、{{chars}} 文字、{{days}} 日に記録があります。',
     weekNoteEmpty: '直近 7 日の音声入力記録はありません。',
     weekEmpty: '直近 7 日の記録はありません',
-    weekUnit: '実履歴 · セグメント / 日',
+    weekUnit: '実履歴 · 文字数 / 日',
     recentTitle: '最近の認識',
     recentAll: 'すべて表示 →',
     recentEmpty: '記録がありません。{{trigger}} を押して最初の録音を始めましょう。',

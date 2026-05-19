@@ -2021,6 +2021,9 @@ fn parse_numbered_marker(chars: &[char], start: usize) -> Option<NumberedMarker>
         if second == 0 || second > 20 || !is_marker_boundary(chars, after_second) {
             return None;
         }
+        if looks_like_decimal_version_context(chars, after_second) {
+            return None;
+        }
         return Some(NumberedMarker {
             kind: NumberedMarkerKind::SubLevel,
         });
@@ -2032,6 +2035,11 @@ fn parse_numbered_marker(chars: &[char], start: usize) -> Option<NumberedMarker>
     Some(NumberedMarker {
         kind: NumberedMarkerKind::TopLevel,
     })
+}
+
+fn looks_like_decimal_version_context(chars: &[char], cursor: usize) -> bool {
+    let rest: String = chars[cursor..].iter().take(12).collect();
+    rest.starts_with('版') || has_decimal_context_keyword(&rest)
 }
 
 fn parse_marker_number(chars: &[char], start: usize) -> Option<(u32, usize)> {

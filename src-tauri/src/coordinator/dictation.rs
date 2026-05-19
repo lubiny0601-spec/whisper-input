@@ -12,6 +12,47 @@ use super::*;
 /// 同一个 hotkey 边沿之间的最小间隔。低于此阈值的连按整体作为误触丢弃 ——
 /// 避免微动开关回弹 / 用户手抖双击造成的空转写报错和 ASR session 抢资源。
 const HOTKEY_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(250);
+const SHORT_TRANSCRIPT_LLM_BYPASS_CHAR_THRESHOLD: usize = 8;
+
+fn effective_transcript_char_count(text: &str) -> usize {
+    text.chars()
+        .filter(|ch| {
+            !ch.is_whitespace()
+                && !ch.is_ascii_punctuation()
+                && !matches!(
+                    ch,
+                    '，' | '。'
+                        | '、'
+                        | '；'
+                        | '：'
+                        | '？'
+                        | '！'
+                        | '“'
+                        | '”'
+                        | '‘'
+                        | '’'
+                        | '（'
+                        | '）'
+                        | '《'
+                        | '》'
+                        | '【'
+                        | '】'
+                        | '…'
+                        | '—'
+                )
+        })
+        .count()
+}
+
+fn should_bypass_llm_for_short_transcript(
+    text: &str,
+    translation_active: bool,
+    output_operation: DictationOutputOperation,
+) -> bool {
+    !translation_active
+        && output_operation == DictationOutputOperation::Polish
+        && effective_transcript_char_count(text) < SHORT_TRANSCRIPT_LLM_BYPASS_CHAR_THRESHOLD
+}
 
 fn asr_transcript_has_no_speech(text: &str) -> bool {
     let normalized = text.trim().to_ascii_lowercase();
@@ -1587,15 +1628,6 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
         }
     }
 
-    emit_capsule(
-        inner,
-        CapsuleState::Polishing,
-        0.0,
-        elapsed,
-        Some("正在润色".to_string()),
-        None,
-    );
-
     let prefs = inner.prefs.get();
     let mode = prefs.default_mode;
     let hotword_strs = enabled_phrases(inner);
@@ -1611,11 +1643,31 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
     let translation_active = crate::product::SHOW_TRANSLATION
         && inner.translation_modifier_seen.load(Ordering::SeqCst)
         && !translation_target.is_empty();
+    let short_transcript_llm_bypass =
+        should_bypass_llm_for_short_transcript(&raw.text, translation_active, output_operation);
+
+    emit_capsule(
+        inner,
+        CapsuleState::Polishing,
+        0.0,
+        elapsed,
+        Some(
+            if short_transcript_llm_bypass {
+                "短文本直出"
+            } else {
+                "正在润色"
+            }
+            .to_string(),
+        ),
+        None,
+    );
+
     // 对话感知 polish：拉最近 N 分钟的会话作为 LLM 上下文。仅在非翻译路径且非 Raw mode
     // 才有意义（Raw 只做本轮最小断句和标点，翻译走单轮独立 prompt）。窗口=0 时 prior_turns 是空 Vec，
     // polish 路径自动退化成单轮单消息——跟历史行为一致。
     let polish_context_window_minutes = prefs.polish_context_window_minutes;
-    let prior_turns: Vec<(String, String)> = if !translation_active
+    let prior_turns: Vec<(String, String)> = if !short_transcript_llm_bypass
+        && !translation_active
         && !output_preference_translation_active
         && mode != PolishMode::Raw
         && polish_context_window_minutes > 0
@@ -1686,6 +1738,13 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
         )
         .await;
         (p, e, false)
+    } else if short_transcript_llm_bypass {
+        log::info!(
+            "[coord] short transcript bypass: effective_chars={} threshold={} mode={mode:?}",
+            effective_transcript_char_count(&raw.text),
+            SHORT_TRANSCRIPT_LLM_BYPASS_CHAR_THRESHOLD
+        );
+        (raw.text.clone(), None, false)
     } else if streaming_eligible {
         run_streaming_polish(
             inner,
@@ -1723,7 +1782,7 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
     let should_force_script = if translation_path_active {
         polish_error.is_some()
     } else {
-        mode == PolishMode::Raw || polish_error.is_some()
+        short_transcript_llm_bypass || mode == PolishMode::Raw || polish_error.is_some()
     };
     let polished = if should_force_script {
         apply_chinese_script_preference(&polished, chinese_script_preference)
@@ -1978,7 +2037,8 @@ pub(super) fn cancel_session(inner: &Arc<Inner>) {
 mod tests {
     use super::{
         asr_transcript_has_no_speech, dictation_output_operation, qingyu_local_asr_readiness_error,
-        should_stream_polish_insert, DictationOutputOperation,
+        should_bypass_llm_for_short_transcript, should_stream_polish_insert,
+        DictationOutputOperation, SHORT_TRANSCRIPT_LLM_BYPASS_CHAR_THRESHOLD,
     };
     use crate::types::{OutputLanguagePreference, PolishMode, UserPreferences};
 
@@ -2072,6 +2132,50 @@ mod tests {
             false,
             DictationOutputOperation::TranslateToEnglish,
             PolishMode::Light
+        ));
+    }
+
+    #[test]
+    fn short_transcripts_bypass_llm_on_polish_paths() {
+        assert!(should_bypass_llm_for_short_transcript(
+            "收到。",
+            false,
+            DictationOutputOperation::Polish
+        ));
+        assert!(should_bypass_llm_for_short_transcript(
+            "明天见",
+            false,
+            DictationOutputOperation::Polish
+        ));
+    }
+
+    #[test]
+    fn short_transcript_bypass_ignores_punctuation_and_whitespace() {
+        let short_with_punctuation = "  好的，收到。 ";
+        assert!(should_bypass_llm_for_short_transcript(
+            short_with_punctuation,
+            false,
+            DictationOutputOperation::Polish
+        ));
+    }
+
+    #[test]
+    fn short_transcript_bypass_does_not_apply_at_threshold_or_translation() {
+        let at_threshold = "测".repeat(SHORT_TRANSCRIPT_LLM_BYPASS_CHAR_THRESHOLD);
+        assert!(!should_bypass_llm_for_short_transcript(
+            &at_threshold,
+            false,
+            DictationOutputOperation::Polish
+        ));
+        assert!(!should_bypass_llm_for_short_transcript(
+            "收到",
+            true,
+            DictationOutputOperation::Polish
+        ));
+        assert!(!should_bypass_llm_for_short_transcript(
+            "收到",
+            false,
+            DictationOutputOperation::TranslateToEnglish
         ));
     }
 

@@ -183,7 +183,7 @@ export const zhCN = {
     weekNote: '近 7 天共 {{count}} 段、{{chars}} 字，覆盖 {{days}} 个活跃日。',
     weekNoteEmpty: '近 7 天暂无语音输入记录。',
     weekEmpty: '暂无近 7 天记录',
-    weekUnit: '真实历史 · 段数 / 天',
+    weekUnit: '真实历史 · 字数 / 天',
     recentTitle: '最近识别',
     recentAll: '全部记录 →',
     recentEmpty: '还没有记录。按 {{trigger}} 开始第一次录音。',

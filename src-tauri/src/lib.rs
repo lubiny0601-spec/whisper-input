@@ -136,6 +136,14 @@ pub fn run() {
             // decorations 留给运行时分平台决定：macOS 默认 true 用系统红黄绿；
             // Windows 这里关掉 native chrome 让 React 端 WinTitleBar 接管。
             if let Some(main) = app.get_webview_window("main") {
+                let app_for_close = app.handle().clone();
+                main.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        hide_main_window(&app_for_close);
+                    }
+                });
+
                 #[cfg(target_os = "macos")]
                 {
                     use window_vibrancy::{

@@ -185,7 +185,7 @@ export const zhTW: typeof zhCN = {
     weekNote: '近 7 天共 {{count}} 段、{{chars}} 字，覆蓋 {{days}} 個活躍日。',
     weekNoteEmpty: '近 7 天暫無語音輸入記錄。',
     weekEmpty: '暫無近 7 天記錄',
-    weekUnit: '真實歷史 · 段數 / 天',
+    weekUnit: '真實歷史 · 字數 / 天',
     recentTitle: '最近識別',
     recentAll: '全部記錄 →',
     recentEmpty: '還沒有記錄。按 {{trigger}} 開始第一次錄音。',

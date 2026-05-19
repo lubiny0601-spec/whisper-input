@@ -185,7 +185,7 @@ export const en: typeof zhCN = {
     weekNote: '{{count}} segments and {{chars}} characters across {{days}} active days in the last 7 days.',
     weekNoteEmpty: 'No voice input records in the last 7 days.',
     weekEmpty: 'No records in the last 7 days',
-    weekUnit: 'real history · segments / day',
+    weekUnit: 'real history · characters / day',
     recentTitle: 'Recent transcripts',
     recentAll: 'View all →',
     recentEmpty: 'No records yet. Press {{trigger}} to start your first recording.',

@@ -236,6 +236,26 @@ assert(
 );
 
 assert(
+  overviewSource.includes('className="wi-week-line-chart"') &&
+    overviewSource.includes('<svg') &&
+    !overviewSource.includes('wi-week-bar-track'),
+  '近 7 天趋势必须使用折线图，不能继续使用会挤压底部文字的柱状图结构',
+);
+
+assert(
+  overviewSource.includes('maxChars') &&
+    overviewSource.includes('point.day.chars') &&
+    !overviewSource.includes('maxSessions'),
+  '近 7 天趋势折线图纵轴必须按输入字数绘制，不能继续按段数绘制',
+);
+
+assert(
+  windowChromeSource.includes('await currentWindow.hide();') &&
+    !windowChromeSource.includes('await currentWindow.close();'),
+  'Windows 自绘关闭按钮必须隐藏主窗口到托盘，不能直接 close 退出应用',
+);
+
+assert(
   pageContainerSource.includes("padding: 0"),
   'PageContainer 不得叠加额外 padding；页面内边距由 preview shell 控制',
 );
