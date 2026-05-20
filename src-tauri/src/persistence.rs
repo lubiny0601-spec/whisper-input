@@ -126,6 +126,10 @@ fn data_dir() -> Result<PathBuf> {
     }
 }
 
+pub fn app_data_dir() -> Result<PathBuf> {
+    data_dir()
+}
+
 fn legacy_data_dir() -> Result<PathBuf> {
     #[cfg(target_os = "windows")]
     {

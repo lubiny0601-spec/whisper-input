@@ -17,6 +17,7 @@ mod commands;
 mod coordinator;
 mod coordinator_state;
 mod correction;
+mod diagnostics;
 mod global_hotkey_runtime;
 mod hotkey;
 mod insertion;
