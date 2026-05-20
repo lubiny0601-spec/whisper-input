@@ -91,6 +91,21 @@ pub enum VolcengineASRError {
     DecodeFailed(String),
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct VolcengineDiagnosticSnapshot {
+    pub connected_at_ms: Option<u64>,
+    pub first_server_message_at_ms: Option<u64>,
+    pub last_server_message_at_ms: Option<u64>,
+    pub server_audio_duration_ms: Option<u64>,
+    pub socket_closed_at_ms: Option<u64>,
+    pub socket_error: Option<String>,
+    pub server_log_id: Option<String>,
+    pub frames_sent: Option<u64>,
+    pub bytes_sent: Option<u64>,
+    pub pending_sends: Option<u64>,
+    pub final_missing_partial_used: bool,
+}
+
 type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type WsSink = futures_util::stream::SplitSink<WsStream, Message>;
 type SharedWriter = Arc<AsyncMutex<Option<WsSink>>>;
@@ -107,6 +122,15 @@ struct SyncState {
     final_tx: Option<oneshot::Sender<Result<RawTranscript, VolcengineASRError>>>,
     runtime: Option<Handle>,
     start: Option<Instant>,
+    diagnostic_origin: Option<Instant>,
+    connected_at_ms: Option<u64>,
+    first_server_message_at_ms: Option<u64>,
+    last_server_message_at_ms: Option<u64>,
+    last_server_audio_duration_ms: Option<u64>,
+    last_server_log_id: Option<String>,
+    socket_closed_at_ms: Option<u64>,
+    last_socket_error: Option<String>,
+    final_missing_partial_used: bool,
     /// 最近一次 partial（非 final）的累积 transcript。服务端在 final 帧到达前
     /// 关闭连接 / 网络中断时，作为 fallback 回给上层，避免「用户的话已经识别出来
     /// 但没拿到 final」就丢光。
@@ -153,6 +177,19 @@ impl VolcengineStreamingASR {
     }
 
     pub async fn open_session(self: &Arc<Self>) -> Result<(), VolcengineASRError> {
+        let diagnostic_origin = Instant::now();
+        {
+            let mut st = self.state.lock();
+            st.diagnostic_origin = Some(diagnostic_origin);
+            st.connected_at_ms = None;
+            st.first_server_message_at_ms = None;
+            st.last_server_message_at_ms = None;
+            st.last_server_audio_duration_ms = None;
+            st.last_server_log_id = None;
+            st.socket_closed_at_ms = None;
+            st.last_socket_error = None;
+            st.final_missing_partial_used = false;
+        }
         if !self.credentials.has_auth() || self.credentials.resource_id.trim().is_empty() {
             return Err(VolcengineASRError::CredentialsMissing);
         }
@@ -193,9 +230,13 @@ impl VolcengineStreamingASR {
                 .map_err(|e| VolcengineASRError::ConnectionFailed(e.to_string()))?,
         );
 
-        let (ws, _resp) = connect_async(request)
-            .await
-            .map_err(|e| VolcengineASRError::ConnectionFailed(e.to_string()))?;
+        let (ws, _resp) = match connect_async(request).await {
+            Ok(ws) => ws,
+            Err(e) => {
+                self.record_socket_error(e.to_string());
+                return Err(VolcengineASRError::ConnectionFailed(e.to_string()));
+            }
+        };
         let (write, read) = ws.split();
 
         let (tx, rx) = oneshot::channel();
@@ -211,6 +252,15 @@ impl VolcengineStreamingASR {
             st.final_tx = Some(tx);
             st.runtime = Some(Handle::current());
             st.start = Some(Instant::now());
+            st.diagnostic_origin = Some(diagnostic_origin);
+            st.connected_at_ms = Some(diagnostic_origin.elapsed().as_millis() as u64);
+            st.first_server_message_at_ms = None;
+            st.last_server_message_at_ms = None;
+            st.last_server_audio_duration_ms = None;
+            st.last_server_log_id = None;
+            st.socket_closed_at_ms = None;
+            st.last_socket_error = None;
+            st.final_missing_partial_used = false;
             st.last_partial_text.clear();
         }
         self.pending_sends.store(0, Ordering::SeqCst);
@@ -256,7 +306,7 @@ impl VolcengineStreamingASR {
             &payload_bytes,
             Some(first_seq),
         );
-        send_binary(&self.writer, frame).await?;
+        self.send_binary_with_diagnostics(frame).await?;
 
         // Spawn the receive loop. Holds a Weak<Self> so it doesn't keep
         // the struct alive forever if callers drop their Arcs.
@@ -274,6 +324,7 @@ impl VolcengineStreamingASR {
                         }
                     }
                     Ok(Message::Close(_)) => {
+                        this.record_socket_close();
                         // 服务端没发 final 就关连接 → 用最近一次 partial 兜底，不丢已识别的文字。
                         this.fallback_to_partial_or_error(VolcengineASRError::NoFinalResult);
                         break;
@@ -281,6 +332,7 @@ impl VolcengineStreamingASR {
                     Ok(_) => { /* ignore text/ping/pong */ }
                     Err(e) => {
                         log::error!("[asr] receive loop error: {}", e);
+                        this.record_socket_error(e.to_string());
                         // 网络中断同样回退到 partial，让用户至少拿到已经识别的部分。
                         this.fallback_to_partial_or_error(VolcengineASRError::ConnectionFailed(
                             e.to_string(),
@@ -340,7 +392,7 @@ impl VolcengineStreamingASR {
                 st.bytes_sent += len;
                 st.frames_sent += 1;
             }
-            send_binary(&self.writer, frame).await?;
+            self.send_binary_with_diagnostics(frame).await?;
         }
 
         // Final frame: negativeSequence + negative seq number signals stream end.
@@ -358,7 +410,7 @@ impl VolcengineStreamingASR {
             &[],
             Some(final_seq),
         );
-        send_binary(&self.writer, frame).await?;
+        self.send_binary_with_diagnostics(frame).await?;
 
         let (total_bytes, total_frames) = {
             let st = self.state.lock();
@@ -377,6 +429,23 @@ impl VolcengineStreamingASR {
     pub async fn await_final_result(&self) -> Result<RawTranscript, VolcengineASRError> {
         self.await_final_result_with_timeout(FINAL_RESULT_TIMEOUT)
             .await
+    }
+
+    pub fn diagnostic_snapshot(&self) -> VolcengineDiagnosticSnapshot {
+        let st = self.state.lock();
+        VolcengineDiagnosticSnapshot {
+            connected_at_ms: st.connected_at_ms,
+            first_server_message_at_ms: st.first_server_message_at_ms,
+            last_server_message_at_ms: st.last_server_message_at_ms,
+            server_audio_duration_ms: st.last_server_audio_duration_ms,
+            socket_closed_at_ms: st.socket_closed_at_ms,
+            socket_error: st.last_socket_error.clone(),
+            server_log_id: st.last_server_log_id.clone(),
+            frames_sent: Some(st.frames_sent as u64),
+            bytes_sent: Some(st.bytes_sent as u64),
+            pending_sends: Some(self.pending_sends.load(Ordering::SeqCst) as u64),
+            final_missing_partial_used: st.final_missing_partial_used,
+        }
     }
 
     pub async fn await_final_result_with_timeout(
@@ -424,6 +493,52 @@ impl VolcengineStreamingASR {
 
     // ---- internals ----
 
+    fn diagnostic_elapsed_ms(st: &SyncState) -> u64 {
+        st.diagnostic_origin
+            .map(|origin| origin.elapsed().as_millis() as u64)
+            .unwrap_or(0)
+    }
+
+    fn record_socket_close(&self) {
+        let mut st = self.state.lock();
+        if st.socket_closed_at_ms.is_none() {
+            st.socket_closed_at_ms = Some(Self::diagnostic_elapsed_ms(&st));
+        }
+    }
+
+    fn record_socket_error(&self, error: impl Into<String>) {
+        let mut st = self.state.lock();
+        st.last_socket_error = Some(error.into());
+        if st.socket_closed_at_ms.is_none() {
+            st.socket_closed_at_ms = Some(Self::diagnostic_elapsed_ms(&st));
+        }
+    }
+
+    fn record_server_json_facts(&self, facts: VolcengineDiagnosticSnapshot) {
+        let mut st = self.state.lock();
+        let elapsed = Self::diagnostic_elapsed_ms(&st);
+        if st.first_server_message_at_ms.is_none() {
+            st.first_server_message_at_ms = Some(elapsed);
+        }
+        st.last_server_message_at_ms = Some(elapsed);
+        if facts.server_audio_duration_ms.is_some() {
+            st.last_server_audio_duration_ms = facts.server_audio_duration_ms;
+        }
+        if facts.server_log_id.is_some() {
+            st.last_server_log_id = facts.server_log_id;
+        }
+    }
+
+    async fn send_binary_with_diagnostics(&self, data: Vec<u8>) -> Result<(), VolcengineASRError> {
+        match send_binary(&self.writer, data).await {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.record_socket_error(error.to_string());
+                Err(error)
+            }
+        }
+    }
+
     fn build_first_frame_payload(&self, connect_id: &str) -> Value {
         let mut request = json!({
             "model_name": "bigmodel",
@@ -466,15 +581,17 @@ impl VolcengineStreamingASR {
         if parsed.message_type == Some(MessageType::ErrorMessage) {
             let body = String::from_utf8_lossy(&parsed.payload).to_string();
             let code = parsed.error_code.unwrap_or(0);
+            if let Ok(json) = serde_json::from_str::<Value>(&body) {
+                self.record_server_json_facts(diagnostic_facts_from_server_json(&json));
+            }
             log::error!(
                 "[asr] error frame code={} body={}",
                 code,
                 body.chars().take(200).collect::<String>()
             );
-            self.signal_error(VolcengineASRError::ConnectionFailed(format!(
-                "ASR error {}: {}",
-                code, body
-            )));
+            let error = format!("ASR error {}: {}", code, body);
+            self.record_socket_error(error.clone());
+            self.signal_error(VolcengineASRError::ConnectionFailed(error));
             self.state.lock().is_connected = false;
             *self.audio_tx.lock() = None;
             return false;
@@ -495,6 +612,7 @@ impl VolcengineStreamingASR {
             Ok(v) => v,
             Err(_) => return true,
         };
+        self.record_server_json_facts(diagnostic_facts_from_server_json(&json));
         let Some(result) = normalized_result(&json) else {
             return true;
         };
@@ -578,6 +696,7 @@ impl VolcengineStreamingASR {
                 err,
                 partial.chars().count()
             );
+            self.state.lock().final_missing_partial_used = true;
             self.signal_success(RawTranscript {
                 text: partial,
                 duration_ms,
@@ -673,6 +792,32 @@ fn normalized_result(json: &Value) -> Option<&Value> {
         return Some(json);
     }
     None
+}
+
+fn diagnostic_facts_from_server_json(json: &Value) -> VolcengineDiagnosticSnapshot {
+    let result = normalized_result(json);
+    VolcengineDiagnosticSnapshot {
+        server_audio_duration_ms: json
+            .get("audio_info")
+            .and_then(|v| v.get("duration"))
+            .or_else(|| json.get("duration"))
+            .or_else(|| result.and_then(|r| r.get("duration")))
+            .and_then(value_as_u64),
+        server_log_id: result
+            .and_then(|r| r.get("additions"))
+            .and_then(|v| v.get("log_id"))
+            .or_else(|| json.get("additions").and_then(|v| v.get("log_id")))
+            .or_else(|| json.get("log_id"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        ..Default::default()
+    }
+}
+
+fn value_as_u64(value: &Value) -> Option<u64> {
+    value
+        .as_u64()
+        .or_else(|| value.as_str().and_then(|s| s.parse::<u64>().ok()))
 }
 
 fn hotword_context(entries: &[DictionaryHotword]) -> Option<String> {
@@ -785,6 +930,155 @@ mod tests {
             result,
             Err(VolcengineASRError::FinalResultTimeout)
         ));
+    }
+
+    #[test]
+    fn diagnostic_facts_extract_log_id_and_audio_duration() {
+        let payload = serde_json::json!({
+            "audio_info": { "duration": 8600 },
+            "result": {
+                "additions": { "log_id": "202605210158088D7BA12160111239CBDF" },
+                "text": "首先我不确定"
+            }
+        });
+
+        let facts = diagnostic_facts_from_server_json(&payload);
+
+        assert_eq!(facts.server_audio_duration_ms, Some(8600));
+        assert_eq!(
+            facts.server_log_id.as_deref(),
+            Some("202605210158088D7BA12160111239CBDF")
+        );
+    }
+
+    #[test]
+    fn diagnostic_snapshot_reports_send_counters() {
+        let asr = VolcengineStreamingASR::new(
+            VolcengineCredentials {
+                api_key: "key".into(),
+                app_id: String::new(),
+                access_token: String::new(),
+                endpoint: DEFAULT_ENDPOINT.into(),
+                resource_id: DEFAULT_RESOURCE_ID.into(),
+            },
+            Vec::new(),
+        );
+
+        let snapshot = asr.diagnostic_snapshot();
+
+        assert_eq!(snapshot.frames_sent, Some(0));
+        assert_eq!(snapshot.bytes_sent, Some(0));
+        assert_eq!(snapshot.pending_sends, Some(0));
+    }
+
+    #[test]
+    fn partial_fallback_marks_final_missing_partial_used() {
+        let asr = VolcengineStreamingASR::new(
+            VolcengineCredentials {
+                api_key: "key".into(),
+                app_id: String::new(),
+                access_token: String::new(),
+                endpoint: DEFAULT_ENDPOINT.into(),
+                resource_id: DEFAULT_RESOURCE_ID.into(),
+            },
+            Vec::new(),
+        );
+        asr.state.lock().last_partial_text = "partial".into();
+
+        asr.fallback_to_partial_or_error(VolcengineASRError::NoFinalResult);
+
+        assert!(asr.diagnostic_snapshot().final_missing_partial_used);
+    }
+
+    #[test]
+    fn diagnostic_snapshot_records_close_and_error_times() {
+        let asr = VolcengineStreamingASR::new(
+            VolcengineCredentials {
+                api_key: "key".into(),
+                app_id: String::new(),
+                access_token: String::new(),
+                endpoint: DEFAULT_ENDPOINT.into(),
+                resource_id: DEFAULT_RESOURCE_ID.into(),
+            },
+            Vec::new(),
+        );
+
+        asr.record_socket_close();
+        asr.record_socket_error("receive failed");
+
+        let snapshot = asr.diagnostic_snapshot();
+        assert!(snapshot.socket_closed_at_ms.is_some());
+        assert_eq!(snapshot.socket_error.as_deref(), Some("receive failed"));
+    }
+
+    #[test]
+    fn server_json_frame_updates_message_timestamps_and_duration() {
+        let asr = VolcengineStreamingASR::new(
+            VolcengineCredentials {
+                api_key: "key".into(),
+                app_id: String::new(),
+                access_token: String::new(),
+                endpoint: DEFAULT_ENDPOINT.into(),
+                resource_id: DEFAULT_RESOURCE_ID.into(),
+            },
+            Vec::new(),
+        );
+        asr.state.lock().diagnostic_origin = Some(Instant::now());
+        let payload = serde_json::json!({
+            "duration": "1200",
+            "result": { "text": "partial" }
+        });
+        let frame = frame::build(
+            MessageType::FullServerResponse,
+            Flags::None,
+            Serialization::Json,
+            &serde_json::to_vec(&payload).unwrap(),
+            None,
+        );
+
+        assert!(asr.handle_frame(&frame));
+
+        let snapshot = asr.diagnostic_snapshot();
+        assert_eq!(snapshot.first_server_message_at_ms, Some(0));
+        assert_eq!(snapshot.last_server_message_at_ms, Some(0));
+        assert_eq!(snapshot.server_audio_duration_ms, Some(1200));
+    }
+
+    #[test]
+    fn error_frame_records_socket_error_and_log_id() {
+        let asr = VolcengineStreamingASR::new(
+            VolcengineCredentials {
+                api_key: "key".into(),
+                app_id: String::new(),
+                access_token: String::new(),
+                endpoint: DEFAULT_ENDPOINT.into(),
+                resource_id: DEFAULT_RESOURCE_ID.into(),
+            },
+            Vec::new(),
+        );
+        asr.state.lock().diagnostic_origin = Some(Instant::now());
+        let body = serde_json::json!({ "log_id": "error-log-id", "message": "boom" })
+            .to_string()
+            .into_bytes();
+        let mut frame = Vec::new();
+        frame.push(0x11);
+        frame.push(((MessageType::ErrorMessage as u8) << 4) | (Flags::None as u8));
+        frame.push(((Serialization::None as u8) << 4) | 0);
+        frame.push(0x00);
+        frame.extend_from_slice(&123u32.to_be_bytes());
+        frame.extend_from_slice(&(body.len() as u32).to_be_bytes());
+        frame.extend_from_slice(&body);
+
+        assert!(!asr.handle_frame(&frame));
+
+        let snapshot = asr.diagnostic_snapshot();
+        assert!(snapshot.socket_closed_at_ms.is_some());
+        assert!(snapshot
+            .socket_error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("ASR error 123"));
+        assert_eq!(snapshot.server_log_id.as_deref(), Some("error-log-id"));
     }
 }
 
