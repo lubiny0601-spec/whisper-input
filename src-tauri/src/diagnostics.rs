@@ -177,6 +177,46 @@ impl DiagnosticBundle {
     }
 }
 
+pub fn write_diagnostic_bundle_zip(bundle: &DiagnosticBundle, target_path: &Path) -> Result<()> {
+    if let Some(parent) = target_path.parent() {
+        fs::create_dir_all(parent).context("create diagnostic bundle parent failed")?;
+    }
+
+    let file = fs::File::create(target_path).context("create diagnostic bundle zip failed")?;
+    let mut zip = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    write_zip_json_entry(&mut zip, options, "bundle.json", bundle)?;
+    write_zip_json_entry(&mut zip, options, "diagnostics.json", &bundle.diagnostics)?;
+    write_zip_json_entry(&mut zip, options, "history.json", &bundle.history)?;
+    write_zip_json_entry(
+        &mut zip,
+        options,
+        "settings-summary.json",
+        &bundle.settings_summary,
+    )?;
+    zip.start_file("log-tail.txt", options)
+        .context("start log tail zip entry failed")?;
+    zip.write_all(bundle.log_excerpt.as_bytes())
+        .context("write log tail zip entry failed")?;
+    zip.finish()
+        .context("finish diagnostic bundle zip failed")?;
+    Ok(())
+}
+
+fn write_zip_json_entry<T: Serialize>(
+    zip: &mut zip::ZipWriter<fs::File>,
+    options: zip::write::SimpleFileOptions,
+    name: &str,
+    value: &T,
+) -> Result<()> {
+    zip.start_file(name, options)
+        .with_context(|| format!("start {name} zip entry failed"))?;
+    serde_json::to_writer_pretty(zip, value)
+        .with_context(|| format!("write {name} zip entry failed"))
+}
+
 #[derive(Debug, Clone)]
 pub struct DiagnosticStore {
     inner: Arc<DiagnosticStoreInner>,
@@ -343,6 +383,7 @@ pub fn read_log_tail(path: &Path, max_bytes: usize) -> Result<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::io::Read;
     use tempfile::tempdir;
 
     fn sample_trace() -> DiagnosticTrace {
@@ -577,5 +618,45 @@ mod tests {
         assert_eq!(json["history"].as_array().unwrap().len(), 1);
         assert_eq!(json["logExcerpt"], "log tail");
         assert_eq!(json["settingsSummary"]["apiKey"], "[REDACTED]");
+    }
+
+    #[test]
+    fn write_diagnostic_bundle_zip_creates_expected_entries() {
+        let dir = tempdir().unwrap();
+        let zip_path = dir.path().join("diagnostics.zip");
+        let bundle = DiagnosticBundle::new(
+            vec![sample_trace()],
+            Vec::new(),
+            "log tail".into(),
+            serde_json::json!({ "apiKey": "secret", "activeAsrProvider": "doubao-streaming-asr-2" }),
+        );
+
+        write_diagnostic_bundle_zip(&bundle, &zip_path).unwrap();
+
+        let file = fs::File::open(&zip_path).unwrap();
+        let mut zip = zip::ZipArchive::new(file).unwrap();
+        let names = (0..zip.len())
+            .map(|index| zip.by_index(index).unwrap().name().to_string())
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"bundle.json".to_string()));
+        assert!(names.contains(&"diagnostics.json".to_string()));
+        assert!(names.contains(&"history.json".to_string()));
+        assert!(names.contains(&"settings-summary.json".to_string()));
+        assert!(names.contains(&"log-tail.txt".to_string()));
+
+        let mut bundle_json = String::new();
+        zip.by_name("bundle.json")
+            .unwrap()
+            .read_to_string(&mut bundle_json)
+            .unwrap();
+        assert!(bundle_json.contains("doubao-streaming-asr-2"));
+        assert!(!bundle_json.contains("secret"));
+
+        let mut log_tail = String::new();
+        zip.by_name("log-tail.txt")
+            .unwrap()
+            .read_to_string(&mut log_tail)
+            .unwrap();
+        assert_eq!(log_tail, "log tail");
     }
 }

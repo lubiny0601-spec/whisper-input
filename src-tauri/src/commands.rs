@@ -1,6 +1,6 @@
 //! Tauri command surface — every IPC entry the React UI invokes lives here.
 
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -16,6 +16,9 @@ use crate::asr::qingyu::{
     download as qingyu_download, ModelManifest, QingyuAsrStatus, QingyuLocalAsrService,
 };
 use crate::coordinator::Coordinator;
+use crate::diagnostics::{
+    read_log_tail, write_diagnostic_bundle_zip, DiagnosticBundle, DiagnosticStore,
+};
 use crate::llm_gemini::{
     GeminiConfig, GeminiProvider, GEMINI_DEFAULT_BASE_URL, GEMINI_DEFAULT_MODEL,
 };
@@ -2383,6 +2386,49 @@ pub fn export_error_log(target_path: String) -> Result<(), String> {
         .map_err(|e| format!("复制日志失败：{}", e))
 }
 
+#[tauri::command]
+pub fn export_diagnostic_bundle(
+    coord: CoordinatorState<'_>,
+    diagnostics: State<'_, DiagnosticStore>,
+    target_path: String,
+    recent_limit: Option<usize>,
+) -> Result<String, String> {
+    let target_path = diagnostic_bundle_target_path(&target_path)?;
+    let limit = normalize_diagnostic_limit(recent_limit);
+    let diagnostics = diagnostics
+        .list_recent(limit)
+        .map_err(|e| format!("读取诊断记录失败：{e:#}"))?;
+    let mut history = coord
+        .history()
+        .list()
+        .map_err(|e| format!("读取历史记录失败：{e:#}"))?;
+    history.truncate(limit.min(history.len()));
+    let settings_summary = diagnostic_settings_summary(&coord.prefs().get())
+        .map_err(|e| format!("读取设置摘要失败：{e}"))?;
+    let log_excerpt = read_log_tail(&crate::log_dir_path().join("openless.log"), 128 * 1024)
+        .map_err(|e| format!("读取日志尾部失败：{e:#}"))?;
+    let bundle = DiagnosticBundle::new(diagnostics, history, log_excerpt, settings_summary);
+    write_diagnostic_bundle_zip(&bundle, &target_path)
+        .map_err(|e| format!("写入诊断包失败：{e:#}"))?;
+    Ok(target_path.to_string_lossy().to_string())
+}
+
+fn diagnostic_bundle_target_path(target_path: &str) -> Result<PathBuf, String> {
+    let target_path = target_path.trim();
+    if target_path.is_empty() {
+        return Err("诊断包路径不能为空".to_string());
+    }
+    Ok(PathBuf::from(target_path))
+}
+
+fn normalize_diagnostic_limit(recent_limit: Option<usize>) -> usize {
+    recent_limit.unwrap_or(200).clamp(1, 200)
+}
+
+fn diagnostic_settings_summary(prefs: &UserPreferences) -> Result<Value, serde_json::Error> {
+    serde_json::to_value(prefs)
+}
+
 // ─────────────────────────── unused but exported (silences dead_code) ───────────────────────────
 
 #[allow(dead_code)]
@@ -2395,10 +2441,11 @@ mod tests {
         asr_configured_for_provider, asr_transcriptions_url, doubao_llm_provider_config,
         doubao_llm_validation_config, fetch_provider_models, gemini_llm_provider_config,
         gemini_llm_validation_config, llm_configured_for_provider, llm_endpoint_requires_key,
-        local_asr_release_plan_for_provider, models_url, normalize_foundry_language_hint,
-        parse_gemini_model_ids, parse_latest_beta_from_atom, parse_model_ids, persist_settings,
-        qwen_llm_provider_config, qwen_llm_validation_config, release_foundry_runtime_if_inactive,
-        validate_foundry_model_alias, ModelListProtocol, ProviderConfig, SettingsWriter,
+        local_asr_release_plan_for_provider, models_url, normalize_diagnostic_limit,
+        normalize_foundry_language_hint, parse_gemini_model_ids, parse_latest_beta_from_atom,
+        parse_model_ids, persist_settings, qwen_llm_provider_config, qwen_llm_validation_config,
+        release_foundry_runtime_if_inactive, validate_foundry_model_alias, ModelListProtocol,
+        ProviderConfig, SettingsWriter,
     };
     use crate::persistence::CredentialsSnapshot;
     use crate::types::{
@@ -2419,6 +2466,32 @@ mod tests {
 
     fn snapshot() -> CredentialsSnapshot {
         CredentialsSnapshot::default()
+    }
+
+    #[test]
+    fn normalize_diagnostic_limit_uses_safe_bounds() {
+        assert_eq!(normalize_diagnostic_limit(None), 200);
+        assert_eq!(normalize_diagnostic_limit(Some(0)), 1);
+        assert_eq!(normalize_diagnostic_limit(Some(50)), 50);
+        assert_eq!(normalize_diagnostic_limit(Some(500)), 200);
+    }
+
+    #[test]
+    fn diagnostic_settings_summary_omits_credentials() {
+        let prefs = UserPreferences {
+            active_asr_provider: crate::product::DOUBAO_ASR_PROVIDER_ID.into(),
+            active_llm_provider: crate::product::GEMINI_PROVIDER_ID.into(),
+            ..Default::default()
+        };
+
+        let summary = super::diagnostic_settings_summary(&prefs).unwrap();
+
+        assert_eq!(
+            summary["activeAsrProvider"],
+            crate::product::DOUBAO_ASR_PROVIDER_ID
+        );
+        assert!(summary.get("apiKey").is_none());
+        assert!(summary.get("accessToken").is_none());
     }
 
     #[test]

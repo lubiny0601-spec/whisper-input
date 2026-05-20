@@ -63,6 +63,8 @@ use crate::types::PolishMode;
 pub fn run() {
     let foundry_local_runtime = Arc::new(asr::local::FoundryLocalRuntime::new());
     let qingyu_local_asr = Arc::new(asr::qingyu::QingyuLocalAsrService::default());
+    let diagnostic_store =
+        diagnostics::DiagnosticStore::new().expect("error while initializing diagnostic store");
     #[cfg(target_os = "windows")]
     let coordinator = Arc::new(
         coordinator::Coordinator::new_with_foundry_runtime_and_qingyu(
@@ -97,6 +99,7 @@ pub fn run() {
             None,
         ))
         .manage(coordinator.clone())
+        .manage(diagnostic_store.clone())
         .manage(local_asr_download_manager.clone())
         .manage(foundry_local_runtime.clone())
         .manage(qingyu_local_asr.clone())
@@ -344,6 +347,7 @@ pub fn run() {
             commands::foundry_local_asr_cancel_prepare,
             commands::foundry_local_asr_release,
             commands::export_error_log,
+            commands::export_diagnostic_bundle,
             restart_app,
         ])
         .build(tauri::generate_context!())
