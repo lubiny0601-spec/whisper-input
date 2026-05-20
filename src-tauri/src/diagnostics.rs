@@ -467,7 +467,7 @@ mod tests {
             trace_id: "trace-1".into(),
             created_at: "2026-05-21T00:00:00Z".into(),
             app: DiagnosticApp {
-                version: "1.3.3".into(),
+                version: "1.3.4".into(),
                 platform: "windows".into(),
                 arch: "x86_64".into(),
             },
