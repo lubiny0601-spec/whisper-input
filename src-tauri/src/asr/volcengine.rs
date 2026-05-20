@@ -509,9 +509,6 @@ impl VolcengineStreamingASR {
     fn record_socket_error(&self, error: impl Into<String>) {
         let mut st = self.state.lock();
         st.last_socket_error = Some(error.into());
-        if st.socket_closed_at_ms.is_none() {
-            st.socket_closed_at_ms = Some(Self::diagnostic_elapsed_ms(&st));
-        }
     }
 
     fn record_server_json_facts(&self, facts: VolcengineDiagnosticSnapshot) {
@@ -1012,6 +1009,26 @@ mod tests {
     }
 
     #[test]
+    fn diagnostic_socket_error_does_not_imply_socket_close() {
+        let asr = VolcengineStreamingASR::new(
+            VolcengineCredentials {
+                api_key: "key".into(),
+                app_id: String::new(),
+                access_token: String::new(),
+                endpoint: DEFAULT_ENDPOINT.into(),
+                resource_id: DEFAULT_RESOURCE_ID.into(),
+            },
+            Vec::new(),
+        );
+
+        asr.record_socket_error("send failed");
+
+        let snapshot = asr.diagnostic_snapshot();
+        assert!(snapshot.socket_closed_at_ms.is_none());
+        assert_eq!(snapshot.socket_error.as_deref(), Some("send failed"));
+    }
+
+    #[test]
     fn server_json_frame_updates_message_timestamps_and_duration() {
         let asr = VolcengineStreamingASR::new(
             VolcengineCredentials {
@@ -1072,7 +1089,7 @@ mod tests {
         assert!(!asr.handle_frame(&frame));
 
         let snapshot = asr.diagnostic_snapshot();
-        assert!(snapshot.socket_closed_at_ms.is_some());
+        assert!(snapshot.socket_closed_at_ms.is_none());
         assert!(snapshot
             .socket_error
             .as_deref()
