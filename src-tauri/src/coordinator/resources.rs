@@ -5,7 +5,7 @@ use crate::recorder::Recorder;
 use crate::types::CapsuleState;
 use tauri::Manager;
 
-use super::{emit_capsule, ActiveAsr, Inner};
+use super::{emit_capsule, ActiveAsr, DiagnosticRecorderProbe, Inner};
 
 pub(super) struct SessionResource<T> {
     pub(super) session_id: SessionId,
@@ -89,6 +89,22 @@ pub(super) fn store_recorder_for_session(
     recorder: Recorder,
 ) {
     *inner.recorder.lock() = Some(SessionResource::new(session_id, recorder));
+}
+
+pub(super) fn store_recorder_diagnostics_for_session(
+    inner: &Arc<Inner>,
+    session_id: SessionId,
+    probe: Arc<DiagnosticRecorderProbe>,
+) {
+    *inner.recorder_diagnostics.lock() = Some(SessionResource::new(session_id, probe));
+}
+
+pub(super) fn take_recorder_diagnostics_for_session(
+    inner: &Arc<Inner>,
+    session_id: SessionId,
+) -> Option<Arc<DiagnosticRecorderProbe>> {
+    let mut slot = inner.recorder_diagnostics.lock();
+    take_session_resource(&mut slot, session_id)
 }
 
 pub(super) fn selected_microphone_device_name(inner: &Arc<Inner>) -> Option<String> {
@@ -210,6 +226,7 @@ pub(super) fn stop_recorder_for_session(inner: &Arc<Inner>, session_id: SessionI
         recorder.stop();
         release_recording_mute(inner, "dictation");
     }
+    let _ = take_recorder_diagnostics_for_session(inner, session_id);
 }
 
 pub(super) fn discard_startup_resources_for_session(inner: &Arc<Inner>, session_id: SessionId) {

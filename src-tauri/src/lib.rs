@@ -70,11 +70,13 @@ pub fn run() {
         coordinator::Coordinator::new_with_foundry_runtime_and_qingyu(
             Arc::clone(&foundry_local_runtime),
             Arc::clone(&qingyu_local_asr),
+            diagnostic_store.clone(),
         ),
     );
     #[cfg(not(target_os = "windows"))]
     let coordinator = Arc::new(coordinator::Coordinator::new_with_qingyu_local_asr(
         Arc::clone(&qingyu_local_asr),
+        diagnostic_store.clone(),
     ));
     let local_asr_download_manager = Arc::new(asr::local::DownloadManager::new());
 

@@ -5,7 +5,7 @@
 //! insertion, persists history, emits `capsule:state` events to the capsule
 //! window.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::Instant;
@@ -30,6 +30,7 @@ use crate::coordinator_state::{
     publish_abort_idle_after_restore, start_processing_if_listening, startup_race_status,
     BeginOutcome, SessionId, SessionPhase, SessionState, StartupRaceStatus,
 };
+use crate::diagnostics::{DiagnosticRecorderFacts, DiagnosticStore};
 use crate::hotkey::{HotkeyEvent, HotkeyMonitor};
 use crate::insertion::TextInserter;
 use crate::persistence::{
@@ -104,6 +105,7 @@ pub struct Coordinator {
 struct Inner {
     app: Mutex<Option<AppHandle>>,
     history: HistoryStore,
+    diagnostics: DiagnosticStore,
     prefs: PreferencesStore,
     vocab: DictionaryStore,
     correction_rules: CorrectionRuleStore,
@@ -121,6 +123,7 @@ struct Inner {
     #[cfg(target_os = "windows")]
     foundry_local_runtime: Arc<FoundryLocalRuntime>,
     recorder: Mutex<Option<SessionResource<Recorder>>>,
+    recorder_diagnostics: Mutex<Option<SessionResource<Arc<DiagnosticRecorderProbe>>>>,
     recording_mute: Mutex<SharedRecordingMuteState>,
     hotkey: Mutex<Option<HotkeyMonitor>>,
     hotkey_status: Mutex<HotkeyStatus>,
@@ -180,24 +183,27 @@ struct PreparedWindowsImeSessionSlot {
 
 impl Coordinator {
     pub fn new() -> Self {
+        let diagnostics = DiagnosticStore::new().expect("diagnostic store init");
         let qingyu_local_asr = Arc::new(crate::asr::qingyu::QingyuLocalAsrService::default());
         #[cfg(target_os = "windows")]
         {
             Self::new_with_foundry_runtime_and_qingyu(
                 Arc::new(FoundryLocalRuntime::new()),
                 qingyu_local_asr,
+                diagnostics,
             )
         }
 
         #[cfg(not(target_os = "windows"))]
         {
-            Self::new_with_qingyu_local_asr(qingyu_local_asr)
+            Self::new_with_qingyu_local_asr(qingyu_local_asr, diagnostics)
         }
     }
 
     #[cfg(not(target_os = "windows"))]
     pub fn new_with_qingyu_local_asr(
         qingyu_local_asr: Arc<crate::asr::qingyu::QingyuLocalAsrService>,
+        diagnostics: DiagnosticStore,
     ) -> Self {
         let history = HistoryStore::new().unwrap_or_else(|e| {
             log::error!("[coord] HistoryStore init failed: {e}; falling back to empty");
@@ -211,6 +217,7 @@ impl Coordinator {
             inner: Arc::new(Inner {
                 app: Mutex::new(None),
                 history,
+                diagnostics,
                 prefs,
                 vocab,
                 correction_rules,
@@ -219,6 +226,7 @@ impl Coordinator {
                 asr: Mutex::new(None),
                 qingyu_local_asr,
                 recorder: Mutex::new(None),
+                recorder_diagnostics: Mutex::new(None),
                 recording_mute: Mutex::new(SharedRecordingMuteState::new()),
                 hotkey: Mutex::new(None),
                 hotkey_status: Mutex::new(HotkeyStatus::default()),
@@ -244,9 +252,11 @@ impl Coordinator {
 
     #[cfg(target_os = "windows")]
     pub fn new_with_foundry_runtime(foundry_local_runtime: Arc<FoundryLocalRuntime>) -> Self {
+        let diagnostics = DiagnosticStore::new().expect("diagnostic store init");
         Self::new_with_foundry_runtime_and_qingyu(
             foundry_local_runtime,
             Arc::new(crate::asr::qingyu::QingyuLocalAsrService::default()),
+            diagnostics,
         )
     }
 
@@ -254,6 +264,7 @@ impl Coordinator {
     pub fn new_with_foundry_runtime_and_qingyu(
         foundry_local_runtime: Arc<FoundryLocalRuntime>,
         qingyu_local_asr: Arc<crate::asr::qingyu::QingyuLocalAsrService>,
+        diagnostics: DiagnosticStore,
     ) -> Self {
         let history = HistoryStore::new().unwrap_or_else(|e| {
             log::error!("[coord] HistoryStore init failed: {e}; falling back to empty");
@@ -267,6 +278,7 @@ impl Coordinator {
             inner: Arc::new(Inner {
                 app: Mutex::new(None),
                 history,
+                diagnostics,
                 prefs,
                 vocab,
                 correction_rules,
@@ -277,6 +289,7 @@ impl Coordinator {
                 asr: Mutex::new(None),
                 qingyu_local_asr,
                 recorder: Mutex::new(None),
+                recorder_diagnostics: Mutex::new(None),
                 recording_mute: Mutex::new(SharedRecordingMuteState::new()),
                 hotkey: Mutex::new(None),
                 hotkey_status: Mutex::new(HotkeyStatus::default()),
@@ -700,6 +713,9 @@ impl Coordinator {
 
     pub fn history(&self) -> &HistoryStore {
         &self.inner.history
+    }
+    pub fn diagnostics(&self) -> &DiagnosticStore {
+        &self.inner.diagnostics
     }
     pub fn prefs(&self) -> &PreferencesStore {
         &self.inner.prefs
@@ -4631,6 +4647,78 @@ struct CapsuleLayoutState {
     monitor_width: u32,
     monitor_height: u32,
     scale_bits: u64,
+}
+
+struct DiagnosticRecorderProbe {
+    downstream: Arc<dyn crate::recorder::AudioConsumer>,
+    device_name: Option<String>,
+    pcm_bytes: AtomicU64,
+    last_rms_milli: AtomicU64,
+    peak_rms_milli: AtomicU64,
+}
+
+impl DiagnosticRecorderProbe {
+    fn new(
+        downstream: Arc<dyn crate::recorder::AudioConsumer>,
+        device_name: Option<String>,
+    ) -> Self {
+        Self {
+            downstream,
+            device_name,
+            pcm_bytes: AtomicU64::new(0),
+            last_rms_milli: AtomicU64::new(0),
+            peak_rms_milli: AtomicU64::new(0),
+        }
+    }
+
+    fn snapshot(&self) -> DiagnosticRecorderFacts {
+        let pcm_bytes = self.pcm_bytes.load(Ordering::Relaxed);
+        DiagnosticRecorderFacts {
+            device_name: self.device_name.clone(),
+            input_sample_rate: None,
+            output_sample_rate: Some(16_000),
+            pcm_bytes: Some(pcm_bytes),
+            estimated_duration_ms: Some(pcm_bytes / 32),
+            last_rms: Some(self.last_rms_milli.load(Ordering::Relaxed) as f64 / 1_000_000.0),
+            peak_rms: Some(self.peak_rms_milli.load(Ordering::Relaxed) as f64 / 1_000_000.0),
+        }
+    }
+}
+
+impl crate::recorder::AudioConsumer for DiagnosticRecorderProbe {
+    fn consume_pcm_chunk(&self, pcm: &[u8]) {
+        self.pcm_bytes
+            .fetch_add(pcm.len() as u64, Ordering::Relaxed);
+        let rms = pcm_i16_le_rms_milli(pcm);
+        self.last_rms_milli.store(rms, Ordering::Relaxed);
+        update_atomic_max(&self.peak_rms_milli, rms);
+        self.downstream.consume_pcm_chunk(pcm);
+    }
+}
+
+fn pcm_i16_le_rms_milli(pcm: &[u8]) -> u64 {
+    let mut sum_sq = 0.0f64;
+    let mut count = 0usize;
+    for chunk in pcm.chunks_exact(2) {
+        let sample = i16::from_le_bytes([chunk[0], chunk[1]]) as f64 / i16::MAX as f64;
+        sum_sq += sample * sample;
+        count += 1;
+    }
+    if count == 0 {
+        0
+    } else {
+        ((sum_sq / count as f64).sqrt() * 1_000_000.0) as u64
+    }
+}
+
+fn update_atomic_max(target: &AtomicU64, value: u64) {
+    let mut current = target.load(Ordering::Relaxed);
+    while value > current {
+        match target.compare_exchange_weak(current, value, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => break,
+            Err(next) => current = next,
+        }
+    }
 }
 
 fn maybe_position_capsule_bottom_center<R: tauri::Runtime>(

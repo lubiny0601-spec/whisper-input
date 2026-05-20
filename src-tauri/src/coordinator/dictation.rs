@@ -1,8 +1,13 @@
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
+use crate::asr::volcengine::VolcengineDiagnosticSnapshot;
 use crate::coordinator_state::request_stop_during_starting_state;
 use crate::correction::apply_correction_rules;
+use crate::diagnostics::{
+    DiagnosticApp, DiagnosticAsr, DiagnosticInsertion, DiagnosticLlm, DiagnosticRecorderFacts,
+    DiagnosticSession, DiagnosticTrace,
+};
 use crate::types::{HotkeyMode, OutputLanguagePreference, UserPreferences};
 
 use super::qa::handle_qa_option_edge;
@@ -52,6 +57,109 @@ fn should_bypass_llm_for_short_transcript(
     !translation_active
         && output_operation == DictationOutputOperation::Polish
         && effective_transcript_char_count(text) < SHORT_TRANSCRIPT_LLM_BYPASS_CHAR_THRESHOLD
+}
+
+fn diagnostic_insert_method(already_streamed: bool, focus_ready_for_paste: bool) -> &'static str {
+    if already_streamed {
+        "streaming-unicode"
+    } else if focus_ready_for_paste {
+        "clipboard-or-tsf"
+    } else {
+        "copy-fallback"
+    }
+}
+
+fn diagnostic_char_count(text: &str) -> u32 {
+    text.chars().count().min(u32::MAX as usize) as u32
+}
+
+fn new_dictation_trace(
+    trace_id: String,
+    mode: PolishMode,
+    hotkey_mode: HotkeyMode,
+    front_app: Option<String>,
+    asr_provider_id: String,
+    llm_provider_id: String,
+) -> DiagnosticTrace {
+    let now = Utc::now().to_rfc3339();
+    DiagnosticTrace {
+        schema_version: 1,
+        trace_id,
+        created_at: now.clone(),
+        app: DiagnosticApp {
+            version: env!("CARGO_PKG_VERSION").into(),
+            platform: std::env::consts::OS.into(),
+            arch: std::env::consts::ARCH.into(),
+        },
+        session: DiagnosticSession {
+            mode: Some(format!("{mode:?}")),
+            hotkey_mode: Some(format!("{hotkey_mode:?}")),
+            front_app,
+            pressed_at: Some(now),
+            released_at: None,
+            cancelled: false,
+        },
+        recorder: DiagnosticRecorderFacts::default(),
+        asr: DiagnosticAsr {
+            provider: Some(asr_provider_id),
+            ..Default::default()
+        },
+        llm: DiagnosticLlm {
+            provider: Some(llm_provider_id),
+            mode: Some(format!("{mode:?}")),
+            ..Default::default()
+        },
+        insertion: DiagnosticInsertion::default(),
+        flags: Vec::new(),
+    }
+}
+
+fn complete_trace_texts(
+    trace: &mut DiagnosticTrace,
+    raw_text: &str,
+    final_text: &str,
+    status: InsertStatus,
+) {
+    trace.asr.raw_text = Some(raw_text.to_string());
+    trace.asr.raw_chars = Some(diagnostic_char_count(raw_text));
+    trace.llm.final_text = Some(final_text.to_string());
+    trace.llm.final_chars = Some(diagnostic_char_count(final_text));
+    trace.insertion.status = Some(format!("{status:?}"));
+}
+
+fn apply_volcengine_diagnostic_snapshot(
+    trace: &mut DiagnosticTrace,
+    snapshot: VolcengineDiagnosticSnapshot,
+) {
+    trace.asr.connected_at_ms = snapshot.connected_at_ms;
+    trace.asr.first_server_message_at_ms = snapshot.first_server_message_at_ms;
+    trace.asr.last_server_message_at_ms = snapshot.last_server_message_at_ms;
+    trace.asr.server_audio_duration_ms = snapshot.server_audio_duration_ms;
+    trace.asr.socket_closed_at_ms = snapshot.socket_closed_at_ms;
+    trace.asr.socket_error = snapshot.socket_error;
+    trace.asr.server_log_id = snapshot.server_log_id;
+    trace.asr.frames_sent = snapshot.frames_sent;
+    trace.asr.bytes_sent = snapshot.bytes_sent;
+    trace.asr.pending_sends = snapshot.pending_sends;
+    trace.asr.final_missing_partial_used = snapshot.final_missing_partial_used;
+}
+
+fn append_diagnostic_trace(inner: &Arc<Inner>, trace: DiagnosticTrace) {
+    if let Err(error) = inner.diagnostics.append(trace) {
+        log::warn!("[diagnostics] append dictation trace failed: {error}");
+    }
+}
+
+#[cfg(test)]
+fn diagnostic_trace_for_test(trace_id: &str) -> DiagnosticTrace {
+    new_dictation_trace(
+        trace_id.to_string(),
+        PolishMode::Light,
+        HotkeyMode::Hold,
+        Some("Test App".into()),
+        "doubao-streaming-asr-2".into(),
+        "gemini".into(),
+    )
 }
 
 fn asr_transcript_has_no_speech(text: &str) -> bool {
@@ -1006,9 +1114,15 @@ pub(super) async fn start_recorder_for_starting(
     let microphone_device_name = selected_microphone_device_name(inner);
     stop_microphone_preview_monitor(inner, "dictation recorder");
     acquire_recording_mute(inner, "dictation").await;
-    match Recorder::start(microphone_device_name, consumer, level_handler) {
+    let recorder_probe = Arc::new(DiagnosticRecorderProbe::new(
+        consumer,
+        microphone_device_name.clone(),
+    ));
+    let recorder_consumer: Arc<dyn crate::recorder::AudioConsumer> = recorder_probe.clone();
+    match Recorder::start(microphone_device_name, recorder_consumer, level_handler) {
         Ok((rec, runtime_errors)) => {
             store_recorder_for_session(inner, session_id, rec);
+            store_recorder_diagnostics_for_session(inner, session_id, recorder_probe);
             spawn_recorder_error_monitor(inner, runtime_errors);
             // 不在这里 emit Recording capsule。
             // Recorder::start Ok 仅代表 cpal Stream::play 完成，不代表 audio
@@ -1161,6 +1275,17 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
     let elapsed = inner.state.lock().started_at.elapsed().as_millis() as u64;
     let asr_provider_id = CredentialsVault::get_active_asr();
     let llm_provider_id = CredentialsVault::get_active_llm();
+    let trace_prefs = inner.prefs.get();
+    let trace_front_app = inner.state.lock().front_app.clone();
+    let mut diagnostic_trace = new_dictation_trace(
+        Uuid::new_v4().to_string(),
+        trace_prefs.default_mode,
+        trace_prefs.hotkey.mode,
+        trace_front_app,
+        asr_provider_id.clone(),
+        llm_provider_id.clone(),
+    );
+    diagnostic_trace.session.released_at = Some(Utc::now().to_rfc3339());
     emit_capsule(
         inner,
         CapsuleState::Transcribing,
@@ -1174,6 +1299,9 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
         rec.stop();
         release_recording_mute(inner, "dictation");
     }
+    if let Some(probe) = take_recorder_diagnostics_for_session(inner, current_session_id) {
+        diagnostic_trace.recorder = probe.snapshot();
+    }
 
     let asr_opt = take_asr_for_session(inner, current_session_id);
     let asr = match asr_opt {
@@ -1181,6 +1309,8 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
         None => {
             restore_prepared_windows_ime_session(inner, current_session_id);
             inner.state.lock().phase = SessionPhase::Idle;
+            diagnostic_trace.llm.error = Some("missing active ASR session".to_string());
+            append_diagnostic_trace(inner, diagnostic_trace);
             return Ok(());
         }
     };
@@ -1195,9 +1325,21 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
             // 添加全局超时保护：防止 await_final_result() 永远挂起
             let timeout_duration = std::time::Duration::from_secs(COORDINATOR_GLOBAL_TIMEOUT_SECS);
             match tokio::time::timeout(timeout_duration, asr.await_final_result()).await {
-                Ok(Ok(r)) => r,
+                Ok(Ok(r)) => {
+                    apply_volcengine_diagnostic_snapshot(
+                        &mut diagnostic_trace,
+                        asr.diagnostic_snapshot(),
+                    );
+                    r
+                }
                 Ok(Err(e)) => {
                     log::error!("[coord] await final failed: {e}");
+                    apply_volcengine_diagnostic_snapshot(
+                        &mut diagnostic_trace,
+                        asr.diagnostic_snapshot(),
+                    );
+                    diagnostic_trace.llm.error = Some(format!("asr failed: {e}"));
+                    append_diagnostic_trace(inner, diagnostic_trace);
                     emit_capsule(
                         inner,
                         CapsuleState::Error,
@@ -1219,6 +1361,12 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
                     );
                     // 清理 ASR session，避免资源泄漏
                     asr.cancel();
+                    apply_volcengine_diagnostic_snapshot(
+                        &mut diagnostic_trace,
+                        asr.diagnostic_snapshot(),
+                    );
+                    diagnostic_trace.llm.error = Some("asr global timeout".to_string());
+                    append_diagnostic_trace(inner, diagnostic_trace);
                     emit_capsule(
                         inner,
                         CapsuleState::Error,
@@ -1534,6 +1682,10 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
         }
     };
 
+    diagnostic_trace.recorder.estimated_duration_ms = Some(raw.duration_ms);
+    diagnostic_trace.asr.raw_text = Some(raw.text.clone());
+    diagnostic_trace.asr.raw_chars = Some(diagnostic_char_count(&raw.text));
+
     // ASR 完成后 cancel 检查：用户在 transcribe 进行中按 Esc 时，这里就会命中。
     // 优先级高于 empty 检查 — 用户取消 → 静默丢弃，不写失败历史也不弹错误胶囊。
     if inner.state.lock().cancelled {
@@ -1548,6 +1700,10 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
             state.phase = SessionPhase::Idle;
             state.focus_target = None;
         }
+        diagnostic_trace.session.cancelled = true;
+        diagnostic_trace.insertion.status = Some("cancelledAfterAsr".to_string());
+        diagnostic_trace.insertion.method = Some("none".to_string());
+        append_diagnostic_trace(inner, diagnostic_trace);
         return Ok(());
     }
 
@@ -1563,6 +1719,8 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
                 debug_text.chars().count()
             );
             raw.text = debug_text;
+            diagnostic_trace.asr.raw_text = Some(raw.text.clone());
+            diagnostic_trace.asr.raw_chars = Some(diagnostic_char_count(&raw.text));
         }
     }
 
@@ -1595,6 +1753,14 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
                 log::error!("[coord] history append failed: {e}");
             }
         }
+        diagnostic_trace.session.mode = Some(format!("{:?}", prefs.default_mode));
+        diagnostic_trace.llm.mode = Some(format!("{:?}", prefs.default_mode));
+        diagnostic_trace.llm.error = Some("emptyTranscript".to_string());
+        diagnostic_trace.llm.final_text = Some(String::new());
+        diagnostic_trace.llm.final_chars = Some(0);
+        diagnostic_trace.insertion.status = Some(format!("{:?}", InsertStatus::Failed));
+        diagnostic_trace.insertion.method = Some("none".to_string());
+        append_diagnostic_trace(inner, diagnostic_trace);
         emit_capsule(
             inner,
             CapsuleState::Error,
@@ -1630,6 +1796,9 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
 
     let prefs = inner.prefs.get();
     let mode = prefs.default_mode;
+    diagnostic_trace.session.mode = Some(format!("{mode:?}"));
+    diagnostic_trace.session.hotkey_mode = Some(format!("{:?}", prefs.hotkey.mode));
+    diagnostic_trace.llm.mode = Some(format!("{mode:?}"));
     let hotword_strs = enabled_phrases(inner);
     let working_languages = prefs.working_languages.clone();
     let chinese_script_preference = prefs.chinese_script_preference;
@@ -1702,6 +1871,11 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
         prefs.streaming_insert,
         CredentialsVault::get_active_llm()
     );
+
+    let llm_start = Instant::now();
+    diagnostic_trace.llm.short_input_bypass = short_transcript_llm_bypass;
+    diagnostic_trace.llm.streaming_insert_eligible = streaming_eligible;
+    diagnostic_trace.llm.started_at_ms = Some(elapsed);
 
     let (polished, polish_error, already_streamed) = if translation_active {
         log::info!(
@@ -1802,6 +1976,11 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
         }
         corrected
     };
+    diagnostic_trace.llm.finished_at_ms =
+        Some(elapsed.saturating_add(llm_start.elapsed().as_millis() as u64));
+    diagnostic_trace.llm.error = polish_error.clone();
+    diagnostic_trace.llm.final_text = Some(polished.clone());
+    diagnostic_trace.llm.final_chars = Some(diagnostic_char_count(&polished));
 
     // 原子化最后一次 cancel 检查 + 转 Inserting：
     // 在同一 lock 内决定「丢弃」还是「进入 Inserting」。一旦设到 Inserting，
@@ -1826,6 +2005,10 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
             "[coord] cancel detected before insert — discarding output (chars={})",
             polished.chars().count()
         );
+        diagnostic_trace.session.cancelled = true;
+        diagnostic_trace.insertion.status = Some("cancelledBeforeInsert".to_string());
+        diagnostic_trace.insertion.method = Some("none".to_string());
+        append_diagnostic_trace(inner, diagnostic_trace);
         restore_prepared_windows_ime_session(inner, current_session_id);
         return Ok(());
     }
@@ -1941,6 +2124,11 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
             log::error!("[coord] history append failed: {e}");
         }
     }
+    complete_trace_texts(&mut diagnostic_trace, &raw.text, &polished, status);
+    diagnostic_trace.insertion.method =
+        Some(diagnostic_insert_method(already_streamed, focus_ready_for_paste).to_string());
+    diagnostic_trace.insertion.focus_restored = Some(focus_ready_for_paste);
+    append_diagnostic_trace(inner, diagnostic_trace);
 
     let done_message = if tsf_required_insert_failed {
         Some("TSF 未上屏，已禁止非 TSF 兜底".to_string())
@@ -2036,11 +2224,34 @@ pub(super) fn cancel_session(inner: &Arc<Inner>) {
 #[cfg(test)]
 mod tests {
     use super::{
-        asr_transcript_has_no_speech, dictation_output_operation, qingyu_local_asr_readiness_error,
+        asr_transcript_has_no_speech, complete_trace_texts, diagnostic_insert_method,
+        diagnostic_trace_for_test, dictation_output_operation, qingyu_local_asr_readiness_error,
         should_bypass_llm_for_short_transcript, should_stream_polish_insert,
         DictationOutputOperation, SHORT_TRANSCRIPT_LLM_BYPASS_CHAR_THRESHOLD,
     };
-    use crate::types::{OutputLanguagePreference, PolishMode, UserPreferences};
+    use crate::types::{InsertStatus, OutputLanguagePreference, PolishMode, UserPreferences};
+
+    #[test]
+    fn diagnostic_insert_method_describes_streaming_and_clipboard_paths() {
+        assert_eq!(diagnostic_insert_method(true, true), "streaming-unicode");
+        assert_eq!(diagnostic_insert_method(false, true), "clipboard-or-tsf");
+        assert_eq!(diagnostic_insert_method(false, false), "copy-fallback");
+    }
+
+    #[test]
+    fn diagnostic_trace_records_raw_and_final_lengths() {
+        let mut trace = diagnostic_trace_for_test("trace-test");
+        complete_trace_texts(
+            &mut trace,
+            "这是原始识别文本",
+            "这是最终文本",
+            InsertStatus::PasteSent,
+        );
+
+        assert_eq!(trace.asr.raw_chars, Some(8));
+        assert_eq!(trace.llm.final_chars, Some(6));
+        assert_eq!(trace.insertion.status.as_deref(), Some("PasteSent"));
+    }
 
     #[test]
     fn english_output_preference_routes_chinese_asr_text_to_translation() {
