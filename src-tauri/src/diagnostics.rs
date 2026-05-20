@@ -128,7 +128,7 @@ impl DiagnosticTrace {
             flags.push("asr_final_missing_partial_used".to_string());
         }
         if let (Some(raw_chars), Some(final_chars)) = (self.asr.raw_chars, self.llm.final_chars) {
-            if final_chars.saturating_mul(100) < raw_chars.saturating_mul(60) {
+            if raw_chars >= 30 && final_chars.saturating_mul(100) < raw_chars.saturating_mul(60) {
                 flags.push("llm_output_much_shorter_than_raw".to_string());
             }
         }
@@ -280,6 +280,10 @@ pub fn redact_secrets(value: Value) -> Value {
                     let lower = key.to_ascii_lowercase();
                     if lower.contains("apikey")
                         || lower.contains("api_key")
+                        || lower.contains("appkey")
+                        || lower.contains("app_key")
+                        || lower.contains("accesskey")
+                        || lower.contains("access_key")
                         || lower.contains("token")
                         || lower.contains("secret")
                         || lower.contains("authorization")
@@ -349,7 +353,7 @@ mod tests {
                 socket_error: Some("WSAECONNRESET 10054".into()),
                 server_log_id: Some("server-log-id".into()),
                 raw_text: Some("recognized text".into()),
-                raw_chars: Some(15),
+                raw_chars: Some(30),
                 final_missing_partial_used: true,
                 frames_sent: Some(140),
                 bytes_sent: Some(896000),
@@ -402,10 +406,25 @@ mod tests {
     }
 
     #[test]
+    fn short_raw_input_does_not_trigger_llm_shorter_flag() {
+        let mut trace = sample_trace();
+        trace.asr.raw_chars = Some(2);
+        trace.llm.final_chars = Some(1);
+
+        trace.compute_flags();
+
+        assert!(!trace
+            .flags
+            .contains(&"llm_output_much_shorter_than_raw".to_string()));
+    }
+
+    #[test]
     fn settings_summary_redacts_secret_like_values() {
         let value = json!({
             "activeAsrProvider": "doubao-streaming-asr-2",
             "apiKey": "sk-secret",
+            "appKey": "app-secret",
+            "accessKey": "access-secret",
             "accessToken": "token-secret",
             "nested": { "authorization": "Bearer abc" },
             "streamingInsert": true
@@ -414,6 +433,8 @@ mod tests {
         let redacted = redact_secrets(value);
 
         assert_eq!(redacted["apiKey"], "[REDACTED]");
+        assert_eq!(redacted["appKey"], "[REDACTED]");
+        assert_eq!(redacted["accessKey"], "[REDACTED]");
         assert_eq!(redacted["accessToken"], "[REDACTED]");
         assert_eq!(redacted["nested"]["authorization"], "[REDACTED]");
         assert_eq!(redacted["activeAsrProvider"], "doubao-streaming-asr-2");
