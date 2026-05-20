@@ -105,13 +105,13 @@ impl DiagnosticTrace {
     pub fn compute_flags(&mut self) {
         let mut flags = Vec::new();
 
-        if self.asr.socket_error.is_some() && self.session.released_at.is_some() {
-            flags.push("asr_connection_reset_before_hotkey_release".to_string());
-        }
         if let (Some(socket_ms), Some(local_ms)) = (
             self.asr.socket_closed_at_ms,
             self.recorder.estimated_duration_ms,
         ) {
+            if self.asr.socket_error.is_some() && socket_ms.saturating_add(500) < local_ms {
+                flags.push("asr_connection_reset_before_hotkey_release".to_string());
+            }
             if local_ms > socket_ms.saturating_add(500) {
                 flags.push("local_audio_continued_after_asr_disconnect".to_string());
             }
@@ -132,7 +132,10 @@ impl DiagnosticTrace {
                 flags.push("llm_output_much_shorter_than_raw".to_string());
             }
         }
-        if self.insertion.status.as_deref() == Some("PasteSent") {
+        if matches!(
+            self.insertion.status.as_deref(),
+            Some("PasteSent" | "pasteSent")
+        ) {
             flags.push("insert_unverified_paste_sent".to_string());
         }
         if self.insertion.focus_restored == Some(false) {
@@ -208,7 +211,10 @@ impl DiagnosticStore {
     pub fn append_with_now(&self, mut trace: DiagnosticTrace, now: DateTime<Utc>) -> Result<()> {
         trace.compute_flags();
         let _guard = self.inner.lock.lock();
-        let mut traces = self.read_all_locked()?;
+        let DiagnosticRecords {
+            mut traces,
+            malformed_lines,
+        } = self.read_records_locked()?;
         traces.insert(0, trace);
 
         let cutoff = now - Duration::days(DIAGNOSTIC_RETENTION_DAYS);
@@ -219,24 +225,25 @@ impl DiagnosticStore {
         });
         traces.truncate(DIAGNOSTIC_CAP.min(traces.len()));
 
-        self.write_all_locked(&traces)
+        self.write_records_locked(&traces, &malformed_lines)
     }
 
     pub fn list_recent(&self, limit: usize) -> Result<Vec<DiagnosticTrace>> {
         let _guard = self.inner.lock.lock();
-        let mut traces = self.read_all_locked()?;
+        let mut traces = self.read_records_locked()?.traces;
         traces.truncate(limit.min(traces.len()));
         Ok(traces)
     }
 
-    fn read_all_locked(&self) -> Result<Vec<DiagnosticTrace>> {
+    fn read_records_locked(&self) -> Result<DiagnosticRecords> {
         if !self.inner.path.exists() {
-            return Ok(Vec::new());
+            return Ok(DiagnosticRecords::default());
         }
 
         let file = fs::File::open(&self.inner.path).context("open diagnostics file failed")?;
         let reader = BufReader::new(file);
         let mut traces = Vec::new();
+        let mut malformed_lines = Vec::new();
 
         for line in reader.lines() {
             let line = line.context("read diagnostics line failed")?;
@@ -245,14 +252,24 @@ impl DiagnosticStore {
             }
             match serde_json::from_str::<DiagnosticTrace>(&line) {
                 Ok(trace) => traces.push(trace),
-                Err(err) => log::warn!("[diagnostics] skipping malformed trace line: {err}"),
+                Err(err) => {
+                    log::warn!("[diagnostics] preserving malformed trace line: {err}");
+                    malformed_lines.push(line);
+                }
             }
         }
 
-        Ok(traces)
+        Ok(DiagnosticRecords {
+            traces,
+            malformed_lines,
+        })
     }
 
-    fn write_all_locked(&self, traces: &[DiagnosticTrace]) -> Result<()> {
+    fn write_records_locked(
+        &self,
+        traces: &[DiagnosticTrace],
+        malformed_lines: &[String],
+    ) -> Result<()> {
         if let Some(parent) = self.inner.path.parent() {
             fs::create_dir_all(parent).context("create diagnostics parent failed")?;
         }
@@ -266,10 +283,22 @@ impl DiagnosticStore {
                 file.write_all(b"\n")
                     .context("write diagnostic newline failed")?;
             }
+            for line in malformed_lines {
+                file.write_all(line.as_bytes())
+                    .context("write malformed diagnostic line failed")?;
+                file.write_all(b"\n")
+                    .context("write malformed diagnostic newline failed")?;
+            }
             file.sync_all().context("sync diagnostics temp failed")?;
         }
         fs::rename(&tmp, &self.inner.path).context("replace diagnostics file failed")
     }
+}
+
+#[derive(Debug, Default)]
+struct DiagnosticRecords {
+    traces: Vec<DiagnosticTrace>,
+    malformed_lines: Vec<String>,
 }
 
 pub fn redact_secrets(value: Value) -> Value {
@@ -419,6 +448,32 @@ mod tests {
     }
 
     #[test]
+    fn paste_sent_flag_accepts_camel_case_status() {
+        let mut trace = sample_trace();
+        trace.insertion.status = Some("pasteSent".into());
+
+        trace.compute_flags();
+
+        assert!(trace
+            .flags
+            .contains(&"insert_unverified_paste_sent".to_string()));
+    }
+
+    #[test]
+    fn connection_reset_after_local_recording_is_not_flagged() {
+        let mut trace = sample_trace();
+        trace.asr.socket_error = Some("WSAECONNRESET 10054".into());
+        trace.asr.socket_closed_at_ms = Some(33_700);
+        trace.recorder.estimated_duration_ms = Some(33_000);
+
+        trace.compute_flags();
+
+        assert!(!trace
+            .flags
+            .contains(&"asr_connection_reset_before_hotkey_release".to_string()));
+    }
+
+    #[test]
     fn settings_summary_redacts_secret_like_values() {
         let value = json!({
             "activeAsrProvider": "doubao-streaming-asr-2",
@@ -465,6 +520,31 @@ mod tests {
         assert_eq!(traces.len(), 200);
         assert_eq!(traces[0].trace_id, "trace-204");
         assert_eq!(traces[199].trace_id, "trace-5");
+    }
+
+    #[test]
+    fn append_preserves_preexisting_malformed_jsonl_lines() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("diagnostics.jsonl");
+        fs::write(&path, "{not-valid-json}\n").unwrap();
+        let store = DiagnosticStore::with_path(path.clone());
+
+        let mut trace = sample_trace();
+        trace.trace_id = "trace-valid".into();
+        store
+            .append_with_now(
+                trace,
+                chrono::DateTime::parse_from_rfc3339("2026-05-21T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&chrono::Utc),
+            )
+            .unwrap();
+
+        let contents = fs::read_to_string(&path).unwrap();
+        assert!(contents.lines().any(|line| line == "{not-valid-json}"));
+        let traces = store.list_recent(10).unwrap();
+        assert_eq!(traces.len(), 1);
+        assert_eq!(traces[0].trace_id, "trace-valid");
     }
 
     #[test]
