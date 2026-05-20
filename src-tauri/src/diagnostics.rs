@@ -166,7 +166,7 @@ impl DiagnosticBundle {
         Self {
             diagnostics,
             history,
-            log_excerpt,
+            log_excerpt: redact_secret_text(&log_excerpt),
             settings_summary: redact_secrets(settings_summary),
             environment: serde_json::json!({
                 "version": env!("CARGO_PKG_VERSION"),
@@ -179,10 +179,16 @@ impl DiagnosticBundle {
 
 pub fn write_diagnostic_bundle_zip(bundle: &DiagnosticBundle, target_path: &Path) -> Result<()> {
     if let Some(parent) = target_path.parent() {
-        fs::create_dir_all(parent).context("create diagnostic bundle parent failed")?;
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).context("create diagnostic bundle parent failed")?;
+        }
     }
 
-    let file = fs::File::create(target_path).context("create diagnostic bundle zip failed")?;
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(target_path)
+        .context("create diagnostic bundle zip failed")?;
     let mut zip = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
@@ -367,6 +373,40 @@ pub fn redact_secrets(value: Value) -> Value {
         Value::Array(items) => Value::Array(items.into_iter().map(redact_secrets).collect()),
         other => other,
     }
+}
+
+pub fn redact_secret_text(input: &str) -> String {
+    input
+        .lines()
+        .map(|line| {
+            if line_may_contain_secret(line) {
+                "[REDACTED LINE]"
+            } else {
+                line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn line_may_contain_secret(line: &str) -> bool {
+    let lower = line.to_ascii_lowercase();
+    lower.contains("apikey")
+        || lower.contains("api_key")
+        || lower.contains("api-key")
+        || lower.contains("appkey")
+        || lower.contains("app_key")
+        || lower.contains("app-key")
+        || lower.contains("accesskey")
+        || lower.contains("access_key")
+        || lower.contains("access-key")
+        || lower.contains("authorization")
+        || lower.contains("bearer ")
+        || lower.contains(" token")
+        || lower.contains("\"token\"")
+        || lower.contains("token=")
+        || lower.contains("secret")
+        || lower.contains("sk-")
 }
 
 pub fn read_log_tail(path: &Path, max_bytes: usize) -> Result<String> {
@@ -609,15 +649,25 @@ mod tests {
         let bundle = DiagnosticBundle::new(
             traces,
             history,
-            "log tail".into(),
+            "log tail\nX-Api-Key: secret".into(),
             serde_json::json!({ "apiKey": "secret", "activeAsrProvider": "doubao-streaming-asr-2" }),
         );
 
         let json = serde_json::to_value(bundle).unwrap();
         assert_eq!(json["diagnostics"].as_array().unwrap().len(), 1);
         assert_eq!(json["history"].as_array().unwrap().len(), 1);
-        assert_eq!(json["logExcerpt"], "log tail");
+        assert_eq!(json["logExcerpt"], "log tail\n[REDACTED LINE]");
         assert_eq!(json["settingsSummary"]["apiKey"], "[REDACTED]");
+    }
+
+    #[test]
+    fn redact_secret_text_redacts_sensitive_log_lines() {
+        let text = "normal line\nAuthorization: Bearer abc\nserver JSON ok\napi_key=abc";
+
+        assert_eq!(
+            redact_secret_text(text),
+            "normal line\n[REDACTED LINE]\nserver JSON ok\n[REDACTED LINE]"
+        );
     }
 
     #[test]
@@ -627,7 +677,7 @@ mod tests {
         let bundle = DiagnosticBundle::new(
             vec![sample_trace()],
             Vec::new(),
-            "log tail".into(),
+            "log tail\nAuthorization: Bearer secret".into(),
             serde_json::json!({ "apiKey": "secret", "activeAsrProvider": "doubao-streaming-asr-2" }),
         );
 
@@ -657,6 +707,6 @@ mod tests {
             .unwrap()
             .read_to_string(&mut log_tail)
             .unwrap();
-        assert_eq!(log_tail, "log tail");
+        assert_eq!(log_tail, "log tail\n[REDACTED LINE]");
     }
 }

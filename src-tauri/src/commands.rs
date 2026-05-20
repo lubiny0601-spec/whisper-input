@@ -562,7 +562,7 @@ fn ensure_main_window(window: &Window) -> Result<(), String> {
     if window.label() == "main" {
         Ok(())
     } else {
-        Err("credential access is only allowed from the main window".to_string())
+        Err("sensitive access is only allowed from the main window".to_string())
     }
 }
 
@@ -2388,11 +2388,13 @@ pub fn export_error_log(target_path: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn export_diagnostic_bundle(
+    window: Window,
     coord: CoordinatorState<'_>,
     diagnostics: State<'_, DiagnosticStore>,
     target_path: String,
     recent_limit: Option<usize>,
 ) -> Result<String, String> {
+    ensure_main_window(&window)?;
     let target_path = diagnostic_bundle_target_path(&target_path)?;
     let limit = normalize_diagnostic_limit(recent_limit);
     let diagnostics = diagnostics
@@ -2418,7 +2420,18 @@ fn diagnostic_bundle_target_path(target_path: &str) -> Result<PathBuf, String> {
     if target_path.is_empty() {
         return Err("诊断包路径不能为空".to_string());
     }
-    Ok(PathBuf::from(target_path))
+    let path = PathBuf::from(target_path);
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    if !extension.eq_ignore_ascii_case("zip") {
+        return Err("诊断包必须导出为 .zip 文件".to_string());
+    }
+    if path.exists() {
+        return Err("目标文件已存在，请选择新的诊断包文件名".to_string());
+    }
+    Ok(path)
 }
 
 fn normalize_diagnostic_limit(recent_limit: Option<usize>) -> usize {
@@ -2474,6 +2487,21 @@ mod tests {
         assert_eq!(normalize_diagnostic_limit(Some(0)), 1);
         assert_eq!(normalize_diagnostic_limit(Some(50)), 50);
         assert_eq!(normalize_diagnostic_limit(Some(500)), 200);
+    }
+
+    #[test]
+    fn diagnostic_bundle_target_path_requires_new_zip_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let zip = dir.path().join("diagnostics.zip");
+        let txt = dir.path().join("diagnostics.txt");
+
+        assert_eq!(
+            super::diagnostic_bundle_target_path(zip.to_str().unwrap()).unwrap(),
+            zip
+        );
+        assert!(super::diagnostic_bundle_target_path(txt.to_str().unwrap()).is_err());
+        std::fs::write(&zip, b"existing").unwrap();
+        assert!(super::diagnostic_bundle_target_path(zip.to_str().unwrap()).is_err());
     }
 
     #[test]
