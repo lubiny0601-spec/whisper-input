@@ -70,6 +70,16 @@ impl OpenAICompatibleConfig {
     }
 }
 
+pub fn effective_request_timeout_secs(provider_id: &str, model: &str) -> u64 {
+    if provider_id.trim() == crate::product::QWEN_LLM_PROVIDER_ID
+        && model.trim() == "qwen3.6-plus"
+    {
+        120
+    } else {
+        DEFAULT_REQUEST_TIMEOUT_SECS
+    }
+}
+
 pub fn llm_config_for_preset(
     provider_id: &str,
     model: &str,
@@ -89,13 +99,16 @@ pub fn llm_config_for_preset(
             } else {
                 model
             };
-            Ok(OpenAICompatibleConfig::new(
+            let mut config = OpenAICompatibleConfig::new(
                 crate::product::QWEN_LLM_PROVIDER_ID,
                 "Qwen",
                 QWEN_LLM_BASE_URL_CN,
                 api_key,
                 model,
-            ))
+            );
+            config.request_timeout_secs =
+                effective_request_timeout_secs(crate::product::QWEN_LLM_PROVIDER_ID, model);
+            Ok(config)
         }
         crate::product::DOUBAO_LLM_PROVIDER_ID => {
             if api_key.is_empty() {
@@ -1524,11 +1537,9 @@ enum ThinkingControl {
 
 fn openai_compatible_thinking_control(provider_id: &str) -> Option<ThinkingControl> {
     match provider_id.trim() {
-        crate::product::QWEN_LLM_PROVIDER_ID => Some(ThinkingControl::EnableThinking),
         crate::product::DOUBAO_LLM_PROVIDER_ID => Some(ThinkingControl::DeepSeekThinking),
         "deepseek" => Some(ThinkingControl::DeepSeekThinking),
         "openrouterFree" => Some(ThinkingControl::OpenRouterReasoning),
-        "alibabaCoding" => Some(ThinkingControl::EnableThinking),
         "openai" | "codingPlanX" => Some(ThinkingControl::ReasoningEffort),
         _ => None,
     }
@@ -2886,6 +2897,7 @@ mod tests {
             "https://dashscope.aliyuncs.com/compatible-mode/v1"
         );
         assert_eq!(config.model, "qwen3.6-plus");
+        assert_eq!(config.request_timeout_secs, 120);
     }
 
     #[test]
@@ -2893,6 +2905,16 @@ mod tests {
         let config =
             llm_config_for_preset(crate::product::QWEN_LLM_PROVIDER_ID, "  ", "key").unwrap();
         assert_eq!(config.model, "qwen3.6-plus");
+        assert_eq!(config.request_timeout_secs, 120);
+    }
+
+    #[test]
+    fn qwen_flash_uses_default_request_timeout() {
+        let config =
+            llm_config_for_preset(crate::product::QWEN_LLM_PROVIDER_ID, "qwen3.5-flash", "key")
+                .unwrap();
+        assert_eq!(config.model, "qwen3.5-flash");
+        assert_eq!(config.request_timeout_secs, DEFAULT_REQUEST_TIMEOUT_SECS);
     }
 
     #[test]
@@ -3277,25 +3299,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_chat_body_adds_enable_thinking_for_alibaba_channel() {
-        let provider = OpenAICompatibleLLMProvider::new(
-            OpenAICompatibleConfig::new(
-                "alibabaCoding",
-                "Alibaba Coding",
-                "https://coding-intl.dashscope.aliyuncs.com/v1",
-                "k",
-                "any-model",
-            )
-            .with_thinking_enabled(true),
-        );
-
-        let body = provider.chat_body(false, vec![json!({ "role": "user", "content": "hi" })]);
-
-        assert_eq!(body["enable_thinking"], true);
-    }
-
-    #[test]
-    fn openai_chat_body_disables_thinking_for_qwen_provider() {
+    fn openai_chat_body_omits_thinking_for_qwen_provider() {
         let provider = OpenAICompatibleLLMProvider::new(OpenAICompatibleConfig::new(
             crate::product::QWEN_LLM_PROVIDER_ID,
             "Qwen",
@@ -3306,7 +3310,7 @@ mod tests {
 
         let body = provider.chat_body(false, vec![json!({ "role": "user", "content": "hi" })]);
 
-        assert_eq!(body["enable_thinking"], false);
+        assert!(body.get("enable_thinking").is_none());
     }
 
     #[test]
