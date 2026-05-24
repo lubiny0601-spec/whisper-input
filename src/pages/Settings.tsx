@@ -54,6 +54,7 @@ import type {
   WindowsImeStatus,
 } from '../lib/types';
 import { emitSaved } from '../lib/savedEvent';
+import { providerLogoSrc } from '../lib/providerBrand';
 import { useHotkeySettings } from '../state/HotkeySettingsContext';
 import i18n, {
   FOLLOW_SYSTEM,
@@ -1418,18 +1419,24 @@ function findAsrPreset(id: string | null | undefined): AsrProviderPreset {
   return ASR_PROVIDER_PRESETS.find(preset => preset.id === normalized) ?? ASR_PROVIDER_PRESETS[0];
 }
 
+const SETTINGS_PROVIDER_LOGO_SOURCES = {
+  qwen: providerLogoSrc(QWEN_REALTIME_ASR_PROVIDER_ID),
+  doubao: providerLogoSrc(DOUBAO_ASR_PROVIDER_ID),
+  gemini: providerLogoSrc(GEMINI_PROVIDER_ID),
+} as const;
+
 const MODEL_BUNDLES: Record<ModelBundleId, { asrProviderId: AsrPresetId; llmPreset: LlmModelPreset; tone: 'blue' | 'outline'; logo: string }> = {
   'qwen-priority': {
     asrProviderId: QWEN_REALTIME_ASR_PROVIDER_ID,
     llmPreset: findRequiredLlmPreset(QWEN_LLM_PROVIDER_ID, 'qwen3.6-plus'),
     tone: 'blue',
-    logo: 'preview-qwen-logo.png',
+    logo: SETTINGS_PROVIDER_LOGO_SOURCES.qwen,
   },
   'doubao-backup': {
     asrProviderId: DOUBAO_ASR_PROVIDER_ID,
     llmPreset: findRequiredLlmPreset(DOUBAO_LLM_PROVIDER_ID, 'doubao-seed-2-0-lite-260215'),
     tone: 'outline',
-    logo: 'preview-doubao-logo.png',
+    logo: SETTINGS_PROVIDER_LOGO_SOURCES.doubao,
   },
 };
 
@@ -1864,9 +1871,12 @@ function ModelsSection() {
       ) : (
         <>
           <Card>
-            <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 13, fontWeight: 500 }}>{t('settings.providers.asrTitle')}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--ol-ink-4)', marginTop: 2 }}>{t('settings.providers.asrDesc')}</div>
+            <div className="wi-provider-section-head">
+              <img className="wi-provider-section-logo" src={providerLogoSrc(asrProvider)} alt="" />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{t('settings.providers.asrTitle')}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--ol-ink-4)', marginTop: 2 }}>{t('settings.providers.asrDesc')}</div>
+              </div>
             </div>
             <div className="wi-provider-row">
               <select
@@ -1894,10 +1904,17 @@ function ModelsSection() {
           </Card>
 
           <Card>
-            <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 13, fontWeight: 500 }}>{t('settings.providers.llmTitle')}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--ol-ink-4)', marginTop: 2 }}>
-                {t('settings.providers.llmDesc')}
+            <div className="wi-provider-section-head">
+              <img
+                className="wi-provider-section-logo"
+                src={openAiCompatibleLlmSelected ? SETTINGS_PROVIDER_LOGO_SOURCES.qwen : providerLogoSrc(activeLlmPreset.providerId)}
+                alt=""
+              />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{t('settings.providers.llmTitle')}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--ol-ink-4)', marginTop: 2 }}>
+                  {t('settings.providers.llmDesc')}
+                </div>
               </div>
             </div>
             <div className="wi-provider-row">

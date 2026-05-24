@@ -840,6 +840,21 @@
   white-space: normal;
 }
 
+.wi-provider-section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  min-width: 0;
+}
+
+.wi-provider-section-logo {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
 .wi-metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

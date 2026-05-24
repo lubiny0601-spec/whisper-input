@@ -8,6 +8,7 @@ import { formatComboLabel } from '../lib/hotkey';
 import { getCredentials, listHistory } from '../lib/ipc';
 import { buildOverviewMetrics, buildWeeklyUsage } from '../lib/overviewMetrics';
 import type { WeeklyUsageDay } from '../lib/overviewMetrics';
+import { providerLogoSrc } from '../lib/providerBrand';
 import {
   DEFAULT_ASR_PROVIDER_ID,
   DEFAULT_LLM_PROVIDER_ID,
@@ -124,14 +125,8 @@ export function Overview({ onOpenHistory, onOpenSettings }: OverviewProps) {
   const llmProviderName = llmNameKey
     ? t(`settings.providers.presets.${llmNameKey}`)
     : llmProviderId;
-  const asrLogoSrc =
-    asrProviderId === DOUBAO_ASR_PROVIDER_ID ? 'preview-doubao-logo.png' : 'preview-qwen-logo.png';
-  const llmLogoSrc =
-    llmProviderId === GEMINI_PROVIDER_ID
-      ? 'preview-gemini-logo.png'
-      : llmProviderId === DOUBAO_LLM_PROVIDER_ID
-        ? 'preview-doubao-logo.png'
-        : 'preview-qwen-logo.png';
+  const asrLogoSrc = providerLogoSrc(asrProviderId);
+  const llmLogoSrc = providerLogoSrc(llmProviderId);
 
   return (
     <>

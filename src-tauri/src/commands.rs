@@ -372,21 +372,27 @@ pub async fn stop_microphone_level_monitor(app: AppHandle) {
 }
 
 #[tauri::command]
-pub fn get_credentials() -> CredentialsStatus {
+pub fn get_credentials(coord: CoordinatorState<'_>) -> CredentialsStatus {
     let snap = CredentialsVault::snapshot();
-    let active_asr_provider = CredentialsVault::get_active_asr();
-    let active_llm_provider = CredentialsVault::get_active_llm();
-    let volcengine_configured = volcengine_configured(&snap);
-    let asr_configured = asr_configured_for_provider(&active_asr_provider, &snap);
-    let llm_configured = llm_configured_for_provider(&active_llm_provider, &snap);
-    CredentialsStatus {
-        active_asr_provider,
-        active_llm_provider,
-        asr_configured,
-        llm_configured,
-        volcengine_configured,
-        ark_configured: llm_configured,
+    let prefs = coord.prefs().get();
+    let status = credentials_status_from_snapshot(
+        snap,
+        prefs.active_asr_provider.clone(),
+        prefs.active_llm_provider.clone(),
+    );
+
+    if CredentialsVault::get_active_asr() != status.active_asr_provider {
+        if let Err(error) = CredentialsVault::set_active_asr_provider(&status.active_asr_provider) {
+            log::warn!("[credentials] failed to sync active ASR provider from prefs: {error}");
+        }
     }
+    if CredentialsVault::get_active_llm() != status.active_llm_provider {
+        if let Err(error) = CredentialsVault::set_active_llm_provider(&status.active_llm_provider) {
+            log::warn!("[credentials] failed to sync active LLM provider from prefs: {error}");
+        }
+    }
+
+    status
 }
 
 fn volcengine_configured(snap: &CredentialsSnapshot) -> bool {
@@ -453,6 +459,28 @@ fn configured(field: &Option<String>) -> bool {
         .as_ref()
         .map(|s| !s.trim().is_empty())
         .unwrap_or(false)
+}
+
+fn credentials_status_from_snapshot(
+    snap: CredentialsSnapshot,
+    active_asr_provider: String,
+    active_llm_provider: String,
+) -> CredentialsStatus {
+    let active_asr_provider =
+        crate::product::normalize_active_asr_provider_id(&active_asr_provider);
+    let active_llm_provider =
+        CredentialsVault::normalize_active_llm_provider_id(&active_llm_provider);
+    let volcengine_configured = volcengine_configured(&snap);
+    let asr_configured = asr_configured_for_provider(&active_asr_provider, &snap);
+    let llm_configured = llm_configured_for_provider(&active_llm_provider, &snap);
+    CredentialsStatus {
+        active_asr_provider,
+        active_llm_provider,
+        asr_configured,
+        llm_configured,
+        volcengine_configured,
+        ark_configured: llm_configured,
+    }
 }
 
 fn credential_with_fallback(
@@ -2451,14 +2479,14 @@ fn _ensure_snapshot_used(_: CredentialsSnapshot) {}
 mod tests {
     use super::{
         active_asr_is_keyless_for_validation, active_foundry_model_from_prefs,
-        asr_configured_for_provider, asr_transcriptions_url, doubao_llm_provider_config,
-        doubao_llm_validation_config, fetch_provider_models, gemini_llm_provider_config,
-        gemini_llm_validation_config, llm_configured_for_provider, llm_endpoint_requires_key,
-        local_asr_release_plan_for_provider, models_url, normalize_diagnostic_limit,
-        normalize_foundry_language_hint, parse_gemini_model_ids, parse_latest_beta_from_atom,
-        parse_model_ids, persist_settings, qwen_llm_provider_config, qwen_llm_validation_config,
-        release_foundry_runtime_if_inactive, validate_foundry_model_alias, ModelListProtocol,
-        ProviderConfig, SettingsWriter,
+        asr_configured_for_provider, asr_transcriptions_url, credentials_status_from_snapshot,
+        doubao_llm_provider_config, doubao_llm_validation_config, fetch_provider_models,
+        gemini_llm_provider_config, gemini_llm_validation_config, llm_configured_for_provider,
+        llm_endpoint_requires_key, local_asr_release_plan_for_provider, models_url,
+        normalize_diagnostic_limit, normalize_foundry_language_hint, parse_gemini_model_ids,
+        parse_latest_beta_from_atom, parse_model_ids, persist_settings, qwen_llm_provider_config,
+        qwen_llm_validation_config, release_foundry_runtime_if_inactive,
+        validate_foundry_model_alias, ModelListProtocol, ProviderConfig, SettingsWriter,
     };
     use crate::persistence::CredentialsSnapshot;
     use crate::types::{
@@ -2628,6 +2656,34 @@ mod tests {
             crate::asr::local::foundry::PROVIDER_ID,
             &snapshot()
         ));
+    }
+
+    #[test]
+    fn credentials_status_uses_prefs_active_providers_for_overview() {
+        let snap = CredentialsSnapshot {
+            asr_qwen_api_key: Some("qwen-key".into()),
+            asr_doubao_api_key: Some("doubao-key".into()),
+            llm_gemini_api_key: Some("gemini-key".into()),
+            ark_api_key: Some("ark-key".into()),
+            ..snapshot()
+        };
+
+        let status = credentials_status_from_snapshot(
+            snap,
+            crate::product::QWEN_REALTIME_ASR_PROVIDER_ID.into(),
+            crate::product::GEMINI_PROVIDER_ID.into(),
+        );
+
+        assert_eq!(
+            status.active_asr_provider,
+            crate::product::QWEN_REALTIME_ASR_PROVIDER_ID
+        );
+        assert_eq!(
+            status.active_llm_provider,
+            crate::product::GEMINI_PROVIDER_ID
+        );
+        assert!(status.asr_configured);
+        assert!(status.llm_configured);
     }
 
     #[test]

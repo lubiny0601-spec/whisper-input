@@ -22,6 +22,7 @@ function assert(condition: boolean, message: string) {
 const settingsSource = readFileSync(new URL('../pages/Settings.tsx', import.meta.url), 'utf8');
 const iconSource = readFileSync(new URL('../components/Icon.tsx', import.meta.url), 'utf8');
 const sidebarSource = readFileSync(new URL('../components/shell/Sidebar.tsx', import.meta.url), 'utf8');
+const commandsSource = readFileSync(new URL('../../src-tauri/src/commands.rs', import.meta.url), 'utf8');
 const overviewSource = readFileSync(new URL('../pages/Overview.tsx', import.meta.url), 'utf8');
 const windowChromeSource = readFileSync(new URL('../components/WindowChrome.tsx', import.meta.url), 'utf8');
 const pageContainerSource = readFileSync(new URL('../components/shell/PageContainer.tsx', import.meta.url), 'utf8');
@@ -144,8 +145,11 @@ assert(
 );
 
 assert(
-  settingsSource.includes("logo: 'preview-qwen-logo.png'") && settingsSource.includes("logo: 'preview-doubao-logo.png'"),
-  '设置简单模式必须分别绑定千问和豆包 Logo 资源',
+  settingsSource.includes('providerLogoSrc(') &&
+    settingsSource.includes("providerLogoSrc(GEMINI_PROVIDER_ID)") &&
+    !settingsSource.includes("logo: 'preview-qwen-logo.png'") &&
+    !settingsSource.includes("logo: 'provider-qwen.svg'"),
+  '设置页必须通过统一 providerLogoSrc 绑定千问、豆包、Gemini 官方图标，不能继续散落硬编码旧 PNG 或自绘 SVG',
 );
 
 assert(
@@ -220,8 +224,11 @@ assert(
 );
 
 assert(
-  overviewSource.includes("preview-doubao-logo.png") && overviewSource.includes("preview-gemini-logo.png"),
-  '概览页必须按当前 provider 显示豆包/Gemini 品牌 Logo，而不是统一回退到千问 Logo',
+  overviewSource.includes('providerLogoSrc(asrProviderId)') &&
+    overviewSource.includes('providerLogoSrc(llmProviderId)') &&
+    !overviewSource.includes("preview-doubao-logo.png") &&
+    !overviewSource.includes("provider-doubao.svg"),
+  '概览页必须按当前 provider 使用统一官方图标映射，而不是硬编码旧 PNG 或自绘 SVG',
 );
 
 const historySource = readFileSync(new URL('../pages/History.tsx', import.meta.url), 'utf8');
@@ -240,6 +247,13 @@ assert(
     overviewSource.includes('<svg') &&
     !overviewSource.includes('wi-week-bar-track'),
   '近 7 天趋势必须使用折线图，不能继续使用会挤压底部文字的柱状图结构',
+);
+
+assert(
+  commandsSource.includes('pub fn get_credentials(coord: CoordinatorState') &&
+    commandsSource.includes('coord.prefs().get()') &&
+    commandsSource.includes('credentials_status_from_snapshot('),
+  '概览 provider 状态必须从 UserPreferences 的 active provider 派生，避免 CredentialsVault 与设置页分叉后显示旧 ASR/LLM',
 );
 
 assert(
