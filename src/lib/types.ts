@@ -100,7 +100,7 @@ export interface HotkeyStatus {
 }
 
 export interface ShortcutBinding {
-  /** 主键，例如 "D" / "Space" / "F1" / "RightOption" / "Shift" */
+  /** 主键，例如 "D" / "Space" / "F1" / "RightOption" / "RightAlt" / "Shift" */
   primary: string;
   /** 修饰符列表，元素小写："cmd" | "shift" | "alt" | "ctrl"。 */
   modifiers: string[];

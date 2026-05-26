@@ -644,8 +644,13 @@
 
 .wi-recording-settings-primary,
 .wi-recording-settings-stream,
+.wi-recording-settings-startup,
 .wi-recording-settings-secondary {
   min-width: 0;
+}
+
+.wi-recording-settings-startup {
+  grid-column: 2;
 }
 
 .wi-recording-settings-secondary {
@@ -653,7 +658,8 @@
 }
 
 .wi-recording-settings-secondary .ol-setting-row,
-.wi-recording-settings-stream .ol-setting-row {
+.wi-recording-settings-stream .ol-setting-row,
+.wi-recording-settings-startup .ol-setting-row {
   padding-top: 11px !important;
   padding-bottom: 11px !important;
 }

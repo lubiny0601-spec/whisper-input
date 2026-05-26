@@ -507,6 +507,27 @@ function RecordingSection() {
       </SettingRow>
     </Card>
 
+    <Card className="wi-recording-settings-startup">
+      <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+        {t('settings.recording.startupGroupTitle')}
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--ol-ink-4)', marginBottom: 6, lineHeight: 1.55 }}>
+        {t('settings.recording.startupAtBootDesc')}
+      </div>
+      <AutostartRow />
+      <SettingRow
+        label={t('settings.recording.startMinimizedLabel')}
+        desc={t('settings.recording.startMinimizedDesc')}
+      >
+        <Toggle on={prefs.startMinimized} onToggle={onStartMinimizedChange} />
+      </SettingRow>
+      {capability.statusHint && (
+        <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--ol-ink-4)', lineHeight: 1.5 }}>
+          {capability.statusHint}
+        </div>
+      )}
+    </Card>
+
     <Card className="wi-recording-settings-secondary" padding={0}>
     <Collapsible title={t('settings.recording.insertGroupTitle')} embedded>
       <SettingRow
@@ -571,21 +592,6 @@ function RecordingSection() {
           style={{ ...inputStyle, width: 80, textAlign: 'right' }}
         />
       </SettingRow>
-    </Collapsible>
-
-    <Collapsible title={t('settings.recording.startupGroupTitle')} embedded>
-      <AutostartRow />
-      <SettingRow
-        label={t('settings.recording.startMinimizedLabel')}
-        desc={t('settings.recording.startMinimizedDesc')}
-      >
-        <Toggle on={prefs.startMinimized} onToggle={onStartMinimizedChange} />
-      </SettingRow>
-      {capability.statusHint && (
-        <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--ol-ink-4)', lineHeight: 1.5 }}>
-          {capability.statusHint}
-        </div>
-      )}
     </Collapsible>
     </Card>
     </div>

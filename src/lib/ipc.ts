@@ -55,8 +55,8 @@ export async function invokeOrMock<T>(
 
 // ── Mock fixtures ──────────────────────────────────────────────────────
 const mockSettings: UserPreferences = {
-  hotkey: { trigger: 'rightControl', mode: 'toggle', keys: [{ code: 'ControlRight' }] },
-  dictationHotkey: { primary: 'RightControl', modifiers: [] },
+  hotkey: { trigger: 'rightAlt', mode: 'toggle', keys: [{ code: 'AltRight' }] },
+  dictationHotkey: { primary: 'RightAlt', modifiers: [] },
   defaultMode: 'structured',
   enabledModes: ['raw', 'light', 'structured', 'formal'],
   launchAtLogin: false,

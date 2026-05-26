@@ -46,7 +46,8 @@ pub fn legacy_modifier_trigger(binding: &ShortcutBinding) -> Option<HotkeyTrigge
         return None;
     }
     match normalize_primary(&binding.primary).as_str() {
-        "rightoption" | "rightalt" => Some(HotkeyTrigger::RightOption),
+        "rightoption" => Some(HotkeyTrigger::RightOption),
+        "rightalt" => Some(HotkeyTrigger::RightAlt),
         "leftoption" | "leftalt" => Some(HotkeyTrigger::LeftOption),
         "rightcontrol" | "rightctrl" => Some(HotkeyTrigger::RightControl),
         "leftcontrol" | "leftctrl" => Some(HotkeyTrigger::LeftControl),
@@ -60,13 +61,23 @@ pub fn legacy_modifier_trigger(binding: &ShortcutBinding) -> Option<HotkeyTrigge
 
 pub fn binding_from_legacy_trigger(trigger: HotkeyTrigger) -> ShortcutBinding {
     let primary = match trigger {
-        HotkeyTrigger::RightOption | HotkeyTrigger::RightAlt => "RightOption",
+        HotkeyTrigger::RightOption => "RightOption",
+        HotkeyTrigger::RightAlt => "RightAlt",
         HotkeyTrigger::LeftOption => "LeftOption",
         HotkeyTrigger::RightControl => "RightControl",
         HotkeyTrigger::LeftControl => "LeftControl",
         HotkeyTrigger::RightCommand => "RightCommand",
         HotkeyTrigger::Fn => "Fn",
-        HotkeyTrigger::Custom => "RightOption",
+        HotkeyTrigger::Custom => {
+            #[cfg(target_os = "windows")]
+            {
+                "RightAlt"
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                "RightOption"
+            }
+        }
     };
     ShortcutBinding {
         primary: primary.into(),

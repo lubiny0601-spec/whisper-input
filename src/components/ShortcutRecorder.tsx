@@ -179,7 +179,7 @@ function modifierPrimaryFromCode(code: string, key: string): string {
   if (key === 'Shift') return 'Shift';
   if (code === 'ControlRight') return 'RightControl';
   if (code === 'ControlLeft') return 'LeftControl';
-  if (code === 'AltRight') return 'RightOption';
+  if (code === 'AltRight') return currentPlatform().isMac ? 'RightOption' : 'RightAlt';
   if (code === 'AltLeft') return 'LeftOption';
   if (code === 'MetaRight' || code === 'MetaLeft') return 'RightCommand';
   return '';

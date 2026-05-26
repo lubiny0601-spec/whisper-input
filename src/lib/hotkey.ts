@@ -254,7 +254,9 @@ function formatPrimary(primary: string): string {
   }
   switch (trimmed.toLowerCase()) {
     case 'rightoption': return isMac ? 'Right ⌥' : 'Right Alt';
+    case 'rightalt': return 'Right Alt';
     case 'leftoption': return isMac ? 'Left ⌥' : 'Left Alt';
+    case 'leftalt': return 'Left Alt';
     case 'rightcontrol': return isMac ? 'Right ⌃' : 'Right Ctrl';
     case 'leftcontrol': return isMac ? 'Left ⌃' : 'Left Ctrl';
     case 'rightcommand': return isMac ? 'Right ⌘' : (currentPlatform().isWindows ? 'Right Win' : 'Right Super');

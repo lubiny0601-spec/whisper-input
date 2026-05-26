@@ -140,8 +140,21 @@ assert(
 );
 
 assert(
+  settingsSource.includes('wi-recording-settings-startup') &&
+    settingsSource.includes('<AutostartRow />') &&
+    settingsSource.includes('settings.recording.startupAtBoot'),
+  '录音与热键页必须在可见启动卡片暴露开机自启，不得只藏在折叠分组里',
+);
+
+assert(
   ipcSource.includes('streamingInsert: true'),
   '前端 mock / 预览默认偏好必须开启流式输出，避免真实应用与预览体验不一致',
+);
+
+assert(
+  ipcSource.includes("hotkey: { trigger: 'rightAlt'") &&
+    ipcSource.includes("dictationHotkey: { primary: 'RightAlt', modifiers: [] }"),
+  '前端 mock / 预览默认听写快捷键必须是 Right ALT',
 );
 
 assert(

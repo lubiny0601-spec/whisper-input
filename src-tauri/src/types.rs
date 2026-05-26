@@ -1053,8 +1053,8 @@ impl HotkeyCapability {
             return Self {
                 adapter: HotkeyAdapterKind::WindowsLowLevel,
                 available_triggers: vec![
-                    HotkeyTrigger::RightControl,
                     HotkeyTrigger::RightAlt,
+                    HotkeyTrigger::RightControl,
                     HotkeyTrigger::LeftControl,
                     HotkeyTrigger::RightCommand,
                     HotkeyTrigger::Custom,
@@ -1064,7 +1064,7 @@ impl HotkeyCapability {
                 supports_side_specific_modifiers: true,
                 explicit_fallback_available: false,
                 status_hint: Some(
-                    "默认建议使用“右Ctrl + 单击”；若更习惯按住说话，可在录音设置里切回“按住”。若无响应，可在权限页查看 hook 安装状态。"
+                    "默认建议使用“右 Alt + 单击”；若更习惯按住说话，可在录音设置里切回“按住”。若无响应，可在权限页查看 hook 安装状态。"
                         .into(),
                 ),
             };
@@ -1166,7 +1166,7 @@ impl Default for HotkeyBinding {
         #[cfg(target_os = "windows")]
         {
             Self {
-                trigger: HotkeyTrigger::RightControl,
+                trigger: HotkeyTrigger::RightAlt,
                 mode: HotkeyMode::Toggle,
                 keys: None,
             }
@@ -1478,6 +1478,17 @@ mod tests {
 
         assert_eq!(binding.effective_codes(), vec!["ControlRight".to_string()]);
         assert_eq!(binding.display_label(), "右 Control");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn default_windows_dictation_hotkey_is_right_alt() {
+        let prefs = UserPreferences::default();
+
+        assert_eq!(prefs.hotkey.trigger, HotkeyTrigger::RightAlt);
+        assert_eq!(prefs.hotkey.effective_codes(), vec!["AltRight".to_string()]);
+        assert_eq!(prefs.dictation_hotkey.primary, "RightAlt");
+        assert!(prefs.dictation_hotkey.modifiers.is_empty());
     }
 
     #[cfg(target_os = "windows")]
