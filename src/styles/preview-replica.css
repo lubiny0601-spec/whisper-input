@@ -642,19 +642,19 @@
   min-width: 0;
 }
 
+.wi-recording-settings-left,
+.wi-recording-settings-right {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
 .wi-recording-settings-primary,
 .wi-recording-settings-stream,
 .wi-recording-settings-startup,
 .wi-recording-settings-secondary {
   min-width: 0;
-}
-
-.wi-recording-settings-startup {
-  grid-column: 2;
-}
-
-.wi-recording-settings-secondary {
-  grid-column: 1 / -1;
 }
 
 .wi-recording-settings-secondary .ol-setting-row,

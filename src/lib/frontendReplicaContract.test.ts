@@ -147,13 +147,22 @@ assert(
 );
 
 assert(
+  settingsSource.includes('wi-recording-settings-left') &&
+    settingsSource.includes('wi-recording-settings-right') &&
+    previewCssSource.includes('.wi-recording-settings-left,') &&
+    previewCssSource.includes('flex-direction: column;'),
+  '录音与热键页必须使用左右两列独立堆叠，避免右侧启动卡片被左侧录音卡高度挤到下一行',
+);
+
+assert(
   ipcSource.includes('streamingInsert: true'),
   '前端 mock / 预览默认偏好必须开启流式输出，避免真实应用与预览体验不一致',
 );
 
 assert(
   ipcSource.includes("hotkey: { trigger: 'rightAlt'") &&
-    ipcSource.includes("dictationHotkey: { primary: 'RightAlt', modifiers: [] }"),
+    ipcSource.includes("dictationHotkey: { primary: 'RightAlt', modifiers: [] }") &&
+    ipcSource.includes('默认建议使用“右 Alt + 单击”'),
   '前端 mock / 预览默认听写快捷键必须是 Right ALT',
 );
 

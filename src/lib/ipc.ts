@@ -100,12 +100,12 @@ const mockSettings: UserPreferences = {
 
 const mockHotkeyCapability: HotkeyCapability = {
   adapter: 'windowsLowLevel',
-  availableTriggers: ['rightControl', 'rightAlt', 'leftControl', 'rightCommand', 'custom'],
+  availableTriggers: ['rightAlt', 'rightControl', 'leftControl', 'rightCommand', 'custom'],
   requiresAccessibilityPermission: false,
   supportsModifierOnlyTrigger: true,
   supportsSideSpecificModifiers: true,
   explicitFallbackAvailable: false,
-  statusHint: '默认建议使用“右Ctrl + 单击”；若更习惯按住说话，可在录音设置里切回“按住”。若无响应，可在权限页查看 hook 安装状态。',
+  statusHint: '默认建议使用“右 Alt + 单击”；若更习惯按住说话，可在录音设置里切回“按住”。若无响应，可在权限页查看 hook 安装状态。',
 };
 
 const mockCredentialsStatus: CredentialsStatus = {

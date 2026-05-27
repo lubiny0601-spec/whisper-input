@@ -354,246 +354,250 @@ function RecordingSection() {
 
   return (
     <div className="wi-recording-settings-grid">
-    <Card className="wi-recording-settings-primary">
-      <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>{t('settings.recording.title')}</div>
-      <div style={{ fontSize: 11.5, color: 'var(--ol-ink-4)', marginBottom: 6 }}>{t('settings.recording.desc')}</div>
-      {isHotkeyModeMigrationNoticeActive() && (
-        <div
-          style={{
-            marginTop: 10,
-            marginBottom: 8,
-            padding: '12px 14px',
-            borderRadius: 10,
-            background: 'rgba(37,99,235,0.08)',
-            border: '0.5px solid rgba(37,99,235,0.18)',
-          }}
-        >
-          <div style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--ol-blue)', marginBottom: 4 }}>
-            {t('settings.recording.migrationNoticeTitle')}
-          </div>
-          <div style={{ fontSize: 11.5, color: 'var(--ol-ink-3)', lineHeight: 1.55 }}>
-            {t('settings.recording.migrationNoticeDesc')}
-          </div>
-        </div>
-      )}
-      <SettingRow label={t('settings.recording.hotkeyLabel')} desc={hotkeyDesc}>
-        <ShortcutRecorder
-          value={prefs.dictationHotkey}
-          onSave={async binding => {
-            await setDictationHotkey(binding);
-            await savePrefs({ ...prefs, dictationHotkey: binding });
-          }}
-        />
-      </SettingRow>
-      <SettingRow label={t('settings.recording.modeLabel')} desc={t('settings.recording.modeDesc')}>
-        <div style={{ display: 'inline-flex', padding: 2, borderRadius: 8, background: 'rgba(0,0,0,0.05)' }}>
-          {choices.map(([v, l]) => (
-            <button
-              key={v}
-              onClick={() => onModeChange(v)}
+      <div className="wi-recording-settings-left">
+        <Card className="wi-recording-settings-primary">
+          <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>{t('settings.recording.title')}</div>
+          <div style={{ fontSize: 11.5, color: 'var(--ol-ink-4)', marginBottom: 6 }}>{t('settings.recording.desc')}</div>
+          {isHotkeyModeMigrationNoticeActive() && (
+            <div
               style={{
-                padding: '5px 14px', fontSize: 12, fontWeight: 500,
-                border: 0, borderRadius: 6, fontFamily: 'inherit',
-                background: prefs.hotkey.mode === v ? '#fff' : 'transparent',
-                color: prefs.hotkey.mode === v ? 'var(--ol-ink)' : 'var(--ol-ink-3)',
-                boxShadow: prefs.hotkey.mode === v ? '0 1px 2px rgba(0,0,0,.08)' : 'none',
-                cursor: 'default',
-                transition: 'background 0.16s var(--ol-motion-quick), color 0.16s var(--ol-motion-quick), box-shadow 0.18s var(--ol-motion-soft)',
+                marginTop: 10,
+                marginBottom: 8,
+                padding: '12px 14px',
+                borderRadius: 10,
+                background: 'rgba(37,99,235,0.08)',
+                border: '0.5px solid rgba(37,99,235,0.18)',
               }}
             >
-              {l}
-            </button>
-          ))}
-        </div>
-      </SettingRow>
-      <SettingRow label={t('settings.recording.microphoneLabel')} desc={t('settings.recording.microphoneDesc')}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <button
-            type="button"
-            aria-label={t('settings.recording.microphoneLabel')}
-            onClick={() => {
-              setMicrophonePickerOpen(true);
-            }}
-            onKeyDown={e => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                setMicrophonePickerOpen(true);
-              }
-            }}
-            onChange={() => {}}
-            style={{
-              ...inputStyle,
-              flex: '0 0 auto',
-              width: 200,
-              maxWidth: 200,
-              height: 32,
-              minWidth: 0,
-              alignSelf: 'flex-start',
-              padding: '0 9px 0 10px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 8,
-              textAlign: 'left',
-              color: 'var(--ol-ink)',
-            }}
-          >
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {selectedMicrophoneLabel}
-            </span>
-            <Icon name="chevRight" size={13} />
-          </button>
-          {!microphoneDevicesLoaded && (
-            <div style={{ fontSize: 11, color: 'var(--ol-ink-4)' }}>{t('common.loading')}</div>
-          )}
-          {microphoneDevicesError && (
-            <div style={{ fontSize: 11, color: 'var(--ol-err)', lineHeight: 1.5 }}>
-              {t('settings.recording.microphoneLoadError', { message: microphoneDevicesError })}
+              <div style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--ol-blue)', marginBottom: 4 }}>
+                {t('settings.recording.migrationNoticeTitle')}
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--ol-ink-3)', lineHeight: 1.55 }}>
+                {t('settings.recording.migrationNoticeDesc')}
+              </div>
             </div>
           )}
-        </div>
-      </SettingRow>
-      {microphonePickerOpen && (
-        <MicrophonePickerDialog
-          devices={microphoneDevices}
-          selectedName={effectiveMicrophoneDeviceName}
-          onClose={() => setMicrophonePickerOpen(false)}
-          onRefresh={() => {
-            void loadMicrophoneDevices();
-          }}
-          loading={!microphoneDevicesLoaded}
-          onSelect={(name) => {
-            onMicrophoneDeviceChange(name);
-          }}
-        />
-      )}
-      <SettingRow
-        label={t('settings.recording.muteDuringRecordingLabel')}
-        desc={t('settings.recording.muteDuringRecordingDesc')}
-      >
-        <Toggle on={prefs.muteDuringRecording} onToggle={onMuteDuringRecordingChange} />
-      </SettingRow>
-    </Card>
-
-    <Card className="wi-recording-settings-stream">
-      <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
-        {t(isLinux
-          ? 'settings.advanced.streamingInsertTitleLinux'
-          : 'settings.advanced.streamingInsertTitle')}
-      </div>
-      <div style={{ fontSize: 11.5, color: 'var(--ol-ink-4)', marginBottom: 10, lineHeight: 1.55 }}>
-        {t('settings.advanced.streamingInsertDesc')}
-      </div>
-      <SettingRow
-        label={t('settings.advanced.streamingInsertLabel')}
-        desc={t(
-          isMac
-            ? 'settings.advanced.streamingInsertHintMac'
-            : isWin
-              ? 'settings.advanced.streamingInsertHintWindows'
-              : 'settings.advanced.streamingInsertHintLinux'
-        )}
-      >
-        <Toggle on={prefs.streamingInsert} onToggle={onStreamingInsertChange} />
-      </SettingRow>
-      <SettingRow
-        label={t('settings.advanced.streamingInsertSaveClipboardLabel')}
-        desc={t('settings.advanced.streamingInsertSaveClipboardHint')}
-      >
-        <Toggle
-          on={prefs.streamingInsertSaveClipboard}
-          onToggle={onStreamingInsertSaveClipboardChange}
-        />
-      </SettingRow>
-    </Card>
-
-    <Card className="wi-recording-settings-startup">
-      <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
-        {t('settings.recording.startupGroupTitle')}
-      </div>
-      <div style={{ fontSize: 11.5, color: 'var(--ol-ink-4)', marginBottom: 6, lineHeight: 1.55 }}>
-        {t('settings.recording.startupAtBootDesc')}
-      </div>
-      <AutostartRow />
-      <SettingRow
-        label={t('settings.recording.startMinimizedLabel')}
-        desc={t('settings.recording.startMinimizedDesc')}
-      >
-        <Toggle on={prefs.startMinimized} onToggle={onStartMinimizedChange} />
-      </SettingRow>
-      {capability.statusHint && (
-        <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--ol-ink-4)', lineHeight: 1.5 }}>
-          {capability.statusHint}
-        </div>
-      )}
-    </Card>
-
-    <Card className="wi-recording-settings-secondary" padding={0}>
-    <Collapsible title={t('settings.recording.insertGroupTitle')} embedded>
-      <SettingRow
-        label={t('settings.recording.restoreClipboardLabel')}
-        desc={t('settings.recording.restoreClipboardDesc')}
-      >
-        <Toggle on={prefs.restoreClipboardAfterPaste} onToggle={onRestoreClipboardChange} />
-      </SettingRow>
-      {capability.adapter !== 'macEventTap' && (
-        <SettingRow
-          label={t('settings.recording.pasteShortcutLabel')}
-          desc={t('settings.recording.pasteShortcutDesc')}
-        >
-          <select
-            value={prefs.pasteShortcut}
-            onChange={e => onPasteShortcutChange(e.target.value as PasteShortcut)}
-            style={{ ...inputStyle, maxWidth: 220 }}
+          <SettingRow label={t('settings.recording.hotkeyLabel')} desc={hotkeyDesc}>
+            <ShortcutRecorder
+              value={prefs.dictationHotkey}
+              onSave={async binding => {
+                await setDictationHotkey(binding);
+                await savePrefs({ ...prefs, dictationHotkey: binding });
+              }}
+            />
+          </SettingRow>
+          <SettingRow label={t('settings.recording.modeLabel')} desc={t('settings.recording.modeDesc')}>
+            <div style={{ display: 'inline-flex', padding: 2, borderRadius: 8, background: 'rgba(0,0,0,0.05)' }}>
+              {choices.map(([v, l]) => (
+                <button
+                  key={v}
+                  onClick={() => onModeChange(v)}
+                  style={{
+                    padding: '5px 14px', fontSize: 12, fontWeight: 500,
+                    border: 0, borderRadius: 6, fontFamily: 'inherit',
+                    background: prefs.hotkey.mode === v ? '#fff' : 'transparent',
+                    color: prefs.hotkey.mode === v ? 'var(--ol-ink)' : 'var(--ol-ink-3)',
+                    boxShadow: prefs.hotkey.mode === v ? '0 1px 2px rgba(0,0,0,.08)' : 'none',
+                    cursor: 'default',
+                    transition: 'background 0.16s var(--ol-motion-quick), color 0.16s var(--ol-motion-quick), box-shadow 0.18s var(--ol-motion-soft)',
+                  }}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+          </SettingRow>
+          <SettingRow label={t('settings.recording.microphoneLabel')} desc={t('settings.recording.microphoneDesc')}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <button
+                type="button"
+                aria-label={t('settings.recording.microphoneLabel')}
+                onClick={() => {
+                  setMicrophonePickerOpen(true);
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setMicrophonePickerOpen(true);
+                  }
+                }}
+                onChange={() => {}}
+                style={{
+                  ...inputStyle,
+                  flex: '0 0 auto',
+                  width: 200,
+                  maxWidth: 200,
+                  height: 32,
+                  minWidth: 0,
+                  alignSelf: 'flex-start',
+                  padding: '0 9px 0 10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  textAlign: 'left',
+                  color: 'var(--ol-ink)',
+                }}
+              >
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {selectedMicrophoneLabel}
+                </span>
+                <Icon name="chevRight" size={13} />
+              </button>
+              {!microphoneDevicesLoaded && (
+                <div style={{ fontSize: 11, color: 'var(--ol-ink-4)' }}>{t('common.loading')}</div>
+              )}
+              {microphoneDevicesError && (
+                <div style={{ fontSize: 11, color: 'var(--ol-err)', lineHeight: 1.5 }}>
+                  {t('settings.recording.microphoneLoadError', { message: microphoneDevicesError })}
+                </div>
+              )}
+            </div>
+          </SettingRow>
+          {microphonePickerOpen && (
+            <MicrophonePickerDialog
+              devices={microphoneDevices}
+              selectedName={effectiveMicrophoneDeviceName}
+              onClose={() => setMicrophonePickerOpen(false)}
+              onRefresh={() => {
+                void loadMicrophoneDevices();
+              }}
+              loading={!microphoneDevicesLoaded}
+              onSelect={(name) => {
+                onMicrophoneDeviceChange(name);
+              }}
+            />
+          )}
+          <SettingRow
+            label={t('settings.recording.muteDuringRecordingLabel')}
+            desc={t('settings.recording.muteDuringRecordingDesc')}
           >
-            <option value="ctrlV">{t('settings.recording.pasteShortcutCtrlV')}</option>
-            <option value="ctrlShiftV">{t('settings.recording.pasteShortcutCtrlShiftV')}</option>
-            <option value="shiftInsert">{t('settings.recording.pasteShortcutShiftInsert')}</option>
-          </select>
-        </SettingRow>
-      )}
-      {PRODUCT_FEATURES.showTsfImeSettings && capability.adapter === 'windowsLowLevel' && (
-        <SettingRow
-          label={t('settings.recording.allowNonTsfFallbackLabel')}
-          desc={t('settings.recording.allowNonTsfFallbackDesc')}
-        >
-          <Toggle
-            on={prefs.allowNonTsfInsertionFallback}
-            onToggle={onAllowNonTsfFallbackChange}
-          />
-        </SettingRow>
-      )}
-    </Collapsible>
+            <Toggle on={prefs.muteDuringRecording} onToggle={onMuteDuringRecordingChange} />
+          </SettingRow>
+        </Card>
 
-    <Collapsible title={t('settings.recording.historyGroupTitle')} embedded>
-      <SettingRow
-        label={t('settings.recording.historyRetentionLabel')}
-        desc={t('settings.recording.historyRetentionDesc')}
-      >
-        <input
-          type="number"
-          min={0}
-          max={365}
-          value={prefs.historyRetentionDays}
-          onChange={e => onHistoryRetentionChange(e.target.value)}
-          style={{ ...inputStyle, width: 80, textAlign: 'right' }}
-        />
-      </SettingRow>
-      <SettingRow
-        label={t('settings.recording.polishContextWindowLabel')}
-        desc={t('settings.recording.polishContextWindowDesc')}
-      >
-        <input
-          type="number"
-          min={0}
-          max={60}
-          value={prefs.polishContextWindowMinutes}
-          onChange={e => onPolishContextWindowChange(e.target.value)}
-          style={{ ...inputStyle, width: 80, textAlign: 'right' }}
-        />
-      </SettingRow>
-    </Collapsible>
-    </Card>
+        <Card className="wi-recording-settings-secondary" padding={0}>
+        <Collapsible title={t('settings.recording.insertGroupTitle')} embedded>
+          <SettingRow
+            label={t('settings.recording.restoreClipboardLabel')}
+            desc={t('settings.recording.restoreClipboardDesc')}
+          >
+            <Toggle on={prefs.restoreClipboardAfterPaste} onToggle={onRestoreClipboardChange} />
+          </SettingRow>
+          {capability.adapter !== 'macEventTap' && (
+            <SettingRow
+              label={t('settings.recording.pasteShortcutLabel')}
+              desc={t('settings.recording.pasteShortcutDesc')}
+            >
+              <select
+                value={prefs.pasteShortcut}
+                onChange={e => onPasteShortcutChange(e.target.value as PasteShortcut)}
+                style={{ ...inputStyle, maxWidth: 220 }}
+              >
+                <option value="ctrlV">{t('settings.recording.pasteShortcutCtrlV')}</option>
+                <option value="ctrlShiftV">{t('settings.recording.pasteShortcutCtrlShiftV')}</option>
+                <option value="shiftInsert">{t('settings.recording.pasteShortcutShiftInsert')}</option>
+              </select>
+            </SettingRow>
+          )}
+          {PRODUCT_FEATURES.showTsfImeSettings && capability.adapter === 'windowsLowLevel' && (
+            <SettingRow
+              label={t('settings.recording.allowNonTsfFallbackLabel')}
+              desc={t('settings.recording.allowNonTsfFallbackDesc')}
+            >
+              <Toggle
+                on={prefs.allowNonTsfInsertionFallback}
+                onToggle={onAllowNonTsfFallbackChange}
+              />
+            </SettingRow>
+          )}
+        </Collapsible>
+
+        <Collapsible title={t('settings.recording.historyGroupTitle')} embedded>
+          <SettingRow
+            label={t('settings.recording.historyRetentionLabel')}
+            desc={t('settings.recording.historyRetentionDesc')}
+          >
+            <input
+              type="number"
+              min={0}
+              max={365}
+              value={prefs.historyRetentionDays}
+              onChange={e => onHistoryRetentionChange(e.target.value)}
+              style={{ ...inputStyle, width: 80, textAlign: 'right' }}
+            />
+          </SettingRow>
+          <SettingRow
+            label={t('settings.recording.polishContextWindowLabel')}
+            desc={t('settings.recording.polishContextWindowDesc')}
+          >
+            <input
+              type="number"
+              min={0}
+              max={60}
+              value={prefs.polishContextWindowMinutes}
+              onChange={e => onPolishContextWindowChange(e.target.value)}
+              style={{ ...inputStyle, width: 80, textAlign: 'right' }}
+            />
+          </SettingRow>
+        </Collapsible>
+        </Card>
+      </div>
+
+      <div className="wi-recording-settings-right">
+        <Card className="wi-recording-settings-stream">
+          <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+            {t(isLinux
+              ? 'settings.advanced.streamingInsertTitleLinux'
+              : 'settings.advanced.streamingInsertTitle')}
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--ol-ink-4)', marginBottom: 10, lineHeight: 1.55 }}>
+            {t('settings.advanced.streamingInsertDesc')}
+          </div>
+          <SettingRow
+            label={t('settings.advanced.streamingInsertLabel')}
+            desc={t(
+              isMac
+                ? 'settings.advanced.streamingInsertHintMac'
+                : isWin
+                  ? 'settings.advanced.streamingInsertHintWindows'
+                  : 'settings.advanced.streamingInsertHintLinux'
+            )}
+          >
+            <Toggle on={prefs.streamingInsert} onToggle={onStreamingInsertChange} />
+          </SettingRow>
+          <SettingRow
+            label={t('settings.advanced.streamingInsertSaveClipboardLabel')}
+            desc={t('settings.advanced.streamingInsertSaveClipboardHint')}
+          >
+            <Toggle
+              on={prefs.streamingInsertSaveClipboard}
+              onToggle={onStreamingInsertSaveClipboardChange}
+            />
+          </SettingRow>
+        </Card>
+
+        <Card className="wi-recording-settings-startup">
+          <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+            {t('settings.recording.startupGroupTitle')}
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--ol-ink-4)', marginBottom: 6, lineHeight: 1.55 }}>
+            {t('settings.recording.startupAtBootDesc')}
+          </div>
+          <AutostartRow />
+          <SettingRow
+            label={t('settings.recording.startMinimizedLabel')}
+            desc={t('settings.recording.startMinimizedDesc')}
+          >
+            <Toggle on={prefs.startMinimized} onToggle={onStartMinimizedChange} />
+          </SettingRow>
+          {capability.statusHint && (
+            <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--ol-ink-4)', lineHeight: 1.5 }}>
+              {capability.statusHint}
+            </div>
+          )}
+        </Card>
+      </div>
     </div>
   );
 }
