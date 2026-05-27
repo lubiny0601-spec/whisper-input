@@ -69,7 +69,7 @@ export function ShortcutRecorder({
       clearPendingModifier();
       return;
     }
-    if (isModifierKey(e.key)) {
+    if (isShortcutModifierKey(e.key)) {
       const primary = modifierPrimaryFromCode(e.code, e.key);
       if (!primary || pendingModifier.current?.primary === primary) return;
       clearPendingModifier();
@@ -83,12 +83,12 @@ export function ShortcutRecorder({
       return;
     }
     clearPendingModifier();
-    const primary = primaryFromKeyboardEvent(e);
-    if (primary) void finish({ primary, modifiers: modifiersFromKeyboardEvent(e) });
+    const primary = primaryFromKeyboardLikeEvent(e);
+    if (primary) void finish({ primary, modifiers: modifiersFromKeyboardLikeEvent(e) });
   };
 
   const onKeyUp = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (!recording || disabled || !isModifierKey(e.key)) return;
+    if (!recording || disabled || !isShortcutModifierKey(e.key)) return;
     e.preventDefault();
     e.stopPropagation();
     const primary = modifierPrimaryFromCode(e.code, e.key);
@@ -162,30 +162,52 @@ export function ShortcutRecorder({
   );
 }
 
-function modifiersFromKeyboardEvent(e: KeyboardEvent): string[] {
+type PlatformInfo = ReturnType<typeof currentPlatform>;
+
+type KeyboardLikeEvent = Pick<
+  KeyboardEvent,
+  'key' | 'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'
+>;
+
+export function modifiersFromKeyboardLikeEvent(
+  e: KeyboardLikeEvent,
+  platform: PlatformInfo = currentPlatform(),
+): string[] {
   const modifiers: string[] = [];
-  if (e.metaKey && e.key !== 'Meta') modifiers.push(currentPlatform().isMac ? 'cmd' : 'super');
+  if (isShortcutModifierKey(e.key)) return modifiers;
+  if (e.metaKey && e.key !== 'Meta') modifiers.push(platform.isMac ? 'cmd' : 'super');
   if (e.ctrlKey && e.key !== 'Control') modifiers.push('ctrl');
   if (e.altKey && e.key !== 'Alt') modifiers.push('alt');
   if (e.shiftKey && e.key !== 'Shift') modifiers.push('shift');
   return modifiers;
 }
 
-function isModifierKey(key: string): boolean {
-  return key === 'Control' || key === 'Alt' || key === 'Shift' || key === 'Meta';
+export function isShortcutModifierKey(key: string): boolean {
+  return (
+    key === 'Control' ||
+    key === 'Alt' ||
+    key === 'AltGraph' ||
+    key === 'Shift' ||
+    key === 'Meta'
+  );
 }
 
-function modifierPrimaryFromCode(code: string, key: string): string {
+export function modifierPrimaryFromCode(
+  code: string,
+  key: string,
+  platform: PlatformInfo = currentPlatform(),
+): string {
   if (key === 'Shift') return 'Shift';
   if (code === 'ControlRight') return 'RightControl';
   if (code === 'ControlLeft') return 'LeftControl';
-  if (code === 'AltRight') return currentPlatform().isMac ? 'RightOption' : 'RightAlt';
+  if (code === 'AltRight') return platform.isMac ? 'RightOption' : 'RightAlt';
   if (code === 'AltLeft') return 'LeftOption';
   if (code === 'MetaRight' || code === 'MetaLeft') return 'RightCommand';
   return '';
 }
 
-function primaryFromKeyboardEvent(e: KeyboardEvent): string {
+export function primaryFromKeyboardLikeEvent(e: KeyboardLikeEvent): string {
+  if (isShortcutModifierKey(e.key)) return '';
   const printable = primaryFromPrintableCode(e.code);
   if (printable) return printable;
   if (e.key.length === 1) return e.key;
