@@ -2110,6 +2110,8 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
         CredentialsVault::get_active_llm()
     );
 
+    let focus_target = inner.state.lock().focus_target;
+    let mut focus_ready_before_stream: Option<bool> = None;
     let llm_start = Instant::now();
     diagnostic_trace.llm.short_input_bypass = short_transcript_llm_bypass;
     diagnostic_trace.llm.streaming_insert_eligible = streaming_eligible;
@@ -2158,19 +2160,40 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
         );
         (raw.text.clone(), None, false)
     } else if streaming_eligible {
-        run_streaming_polish(
-            inner,
-            &raw,
-            mode,
-            &hotword_strs,
-            &working_languages,
-            chinese_script_preference,
-            output_language_preference,
-            llm_thinking_enabled,
-            front_app.as_deref(),
-            &prior_turns,
-        )
-        .await
+        let focus_ready = restore_focus_target_if_possible(focus_target);
+        focus_ready_before_stream = Some(focus_ready);
+        if focus_ready {
+            run_streaming_polish(
+                inner,
+                &raw,
+                mode,
+                &hotword_strs,
+                &working_languages,
+                chinese_script_preference,
+                output_language_preference,
+                llm_thinking_enabled,
+                front_app.as_deref(),
+                &prior_turns,
+            )
+            .await
+        } else {
+            log::warn!(
+                "[coord] streaming_insert: original focus target not ready before stream; fall back to one-shot"
+            );
+            let (p, e) = polish_or_passthrough(
+                &raw,
+                mode,
+                &hotword_strs,
+                &working_languages,
+                chinese_script_preference,
+                output_language_preference,
+                llm_thinking_enabled,
+                front_app.as_deref(),
+                &prior_turns,
+            )
+            .await;
+            (p, e, false)
+        }
     } else {
         let (p, e) = polish_or_passthrough(
             &raw,
@@ -2251,8 +2274,11 @@ pub(super) async fn end_session(inner: &Arc<Inner>) -> Result<(), String> {
         return Ok(());
     }
 
-    let focus_target = inner.state.lock().focus_target;
-    let focus_ready_for_paste = restore_focus_target_if_possible(focus_target);
+    let focus_ready_for_paste = if already_streamed {
+        focus_ready_before_stream.unwrap_or(true)
+    } else {
+        restore_focus_target_if_possible(focus_target)
+    };
     let prefs = inner.prefs.get();
     let restore_clipboard = prefs.restore_clipboard_after_paste;
     let allow_non_tsf_insertion_fallback = prefs.allow_non_tsf_insertion_fallback;
@@ -2582,6 +2608,27 @@ mod tests {
             DictationOutputOperation::TranslateToEnglish,
             PolishMode::Light
         ));
+    }
+
+    #[test]
+    fn streaming_insert_restores_focus_before_streaming_polish() {
+        let source = include_str!("dictation.rs");
+        let dispatch_start = source
+            .find("let (polished, polish_error, already_streamed) =")
+            .expect("polish dispatch assignment should exist");
+        let streaming_call = source[dispatch_start..]
+            .find("run_streaming_polish(")
+            .map(|idx| dispatch_start + idx)
+            .expect("streaming polish call should exist");
+        let focus_restore = source[dispatch_start..]
+            .find("restore_focus_target_if_possible")
+            .map(|idx| dispatch_start + idx)
+            .expect("focus restore call should exist");
+
+        assert!(
+            focus_restore < streaming_call,
+            "streaming insertion must restore the original target before the first LLM delta can be typed"
+        );
     }
 
     #[test]

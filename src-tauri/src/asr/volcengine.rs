@@ -619,22 +619,7 @@ impl VolcengineStreamingASR {
         // 用户可能还在继续说。结果一收到第一个 definite=true 就关掉接收，
         // 后面用户讲的内容全部丢失（实测丢了 9 秒）。
         let has_final = parsed.is_final();
-        let mut full_text = result
-            .get("text")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        if let Some(utterances) = result.get("utterances").and_then(|v| v.as_array()) {
-            // 优先用 utterances 拼接的文本（包含全部分段，不论 definite 与否）
-            let pieces: Vec<&str> = utterances
-                .iter()
-                .filter_map(|u| u.get("text").and_then(|t| t.as_str()))
-                .collect();
-            if !pieces.is_empty() {
-                full_text = pieces.join("");
-            }
-        }
+        let full_text = transcript_text_from_result(result);
 
         // 缓存最新的 partial transcript：服务端在 final 帧前断连时 fallback 用。
         // 仅在非空且不是 final 时更新（final 走另一条路径）。
@@ -791,6 +776,26 @@ fn normalized_result(json: &Value) -> Option<&Value> {
     None
 }
 
+fn transcript_text_from_result(result: &Value) -> String {
+    if let Some(text) = result.get("text").and_then(|v| v.as_str()) {
+        if !text.is_empty() {
+            return text.to_string();
+        }
+    }
+
+    result
+        .get("utterances")
+        .and_then(|v| v.as_array())
+        .map(|utterances| {
+            utterances
+                .iter()
+                .filter_map(|u| u.get("text").and_then(|t| t.as_str()))
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .unwrap_or_default()
+}
+
 fn diagnostic_facts_from_server_json(json: &Value) -> VolcengineDiagnosticSnapshot {
     let result = normalized_result(json);
     VolcengineDiagnosticSnapshot {
@@ -884,6 +889,32 @@ mod tests {
         assert!(!ctx.contains("Bar"));
         let count = ctx.matches("\"word\"").count();
         assert!(count <= HOTWORD_CAP);
+    }
+
+    #[test]
+    fn transcript_text_prefers_server_aggregate_over_utterance_stitching() {
+        let result = json!({
+            "text": "第一段。第二段。",
+            "utterances": [
+                { "text": "第一段。" },
+                { "text": "二段。" }
+            ]
+        });
+
+        assert_eq!(transcript_text_from_result(&result), "第一段。第二段。");
+    }
+
+    #[test]
+    fn transcript_text_falls_back_to_utterances_when_aggregate_missing() {
+        let result = json!({
+            "text": "",
+            "utterances": [
+                { "text": "第一段。" },
+                { "text": "第二段。" }
+            ]
+        });
+
+        assert_eq!(transcript_text_from_result(&result), "第一段。第二段。");
     }
 
     #[test]
