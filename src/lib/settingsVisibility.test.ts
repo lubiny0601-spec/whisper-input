@@ -13,6 +13,7 @@ import {
 } from './settingsVisibility';
 import { ASR_PROVIDER_PRESETS, LLM_MODEL_PRESETS } from './providerPresets';
 import {
+  DOUBAO_LLM_PROVIDER_ID,
   GEMINI_PROVIDER_ID,
   OPENAI_COMPATIBLE_PROVIDER_ID,
   QWEN_LLM_PROVIDER_ID,
@@ -42,8 +43,8 @@ assert(
   'standard product mode must not expose Qwen local ASR',
 );
 assert(
-  standardLlmIds.join(',') === `${QWEN_LLM_PROVIDER_ID},${GEMINI_PROVIDER_ID}`,
-  `standard LLM provider list should include Qwen and Gemini, got ${standardLlmIds.join(',')}`,
+  standardLlmIds.join(',') === `${QWEN_LLM_PROVIDER_ID},${DOUBAO_LLM_PROVIDER_ID},${GEMINI_PROVIDER_ID}`,
+  `standard LLM provider list should include Qwen, Doubao, and Gemini, got ${standardLlmIds.join(',')}`,
 );
 assert(
   !(standardLlmIds as readonly string[]).includes(OPENAI_COMPATIBLE_PROVIDER_ID),
@@ -58,8 +59,8 @@ assert(
   'visible LLM provider normalization should preserve Gemini',
 );
 assert(
-  normalizeVisibleLlmProvider('doubao-llm') === QWEN_LLM_PROVIDER_ID,
-  'retired Doubao LLM should normalize to Qwen',
+  normalizeVisibleLlmProvider(DOUBAO_LLM_PROVIDER_ID) === DOUBAO_LLM_PROVIDER_ID,
+  'visible LLM provider normalization should preserve Doubao',
 );
 assert(
   normalizeVisibleLlmProvider(OPENAI_COMPATIBLE_PROVIDER_ID) === OPENAI_COMPATIBLE_PROVIDER_ID,
@@ -79,6 +80,11 @@ assert(
   llmPresetSelectionForVisibleProvider(GEMINI_PROVIDER_ID, `${GEMINI_PROVIDER_ID}:gemini-2.5-flash`) ===
     `${GEMINI_PROVIDER_ID}:gemini-2.5-flash`,
   'standard Gemini active provider should keep the matched Gemini preset selected',
+);
+assert(
+  llmPresetSelectionForVisibleProvider(DOUBAO_LLM_PROVIDER_ID, `${DOUBAO_LLM_PROVIDER_ID}:doubao-seed-2-0-lite-260215`) ===
+    `${DOUBAO_LLM_PROVIDER_ID}:doubao-seed-2-0-lite-260215`,
+  'standard Doubao active provider should keep the matched Doubao preset selected',
 );
 assert(
   llmPresetSelectionForVisibleProvider('unknown', `${QWEN_LLM_PROVIDER_ID}:qwen3.5-flash`) ===

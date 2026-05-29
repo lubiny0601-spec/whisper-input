@@ -52,7 +52,10 @@ pub fn normalize_active_asr_provider_id(id: &str) -> String {
 }
 
 pub fn is_visible_active_llm_provider(id: &str) -> bool {
-    matches!(id.trim(), QWEN_LLM_PROVIDER_ID | GEMINI_PROVIDER_ID)
+    matches!(
+        id.trim(),
+        QWEN_LLM_PROVIDER_ID | DOUBAO_LLM_PROVIDER_ID | GEMINI_PROVIDER_ID
+    )
 }
 
 pub fn is_advanced_llm_provider(id: &str) -> bool {
@@ -63,7 +66,7 @@ pub fn normalize_active_llm_provider_id(id: &str) -> String {
     match id.trim() {
         "" | QWEN_LLM_PROVIDER_ID | "qwen" | "dashscope" | "alibaba" => QWEN_LLM_PROVIDER_ID.into(),
         DOUBAO_LLM_PROVIDER_ID | "doubao" | "volcengine" | "ark-doubao" => {
-            QWEN_LLM_PROVIDER_ID.into()
+            DOUBAO_LLM_PROVIDER_ID.into()
         }
         GEMINI_PROVIDER_ID => GEMINI_PROVIDER_ID.into(),
         OPENAI_COMPATIBLE_PROVIDER_ID | "ark" | "deepseek" | "ollama" | "openai" => {
@@ -84,9 +87,9 @@ mod cloud_first_tests {
     }
 
     #[test]
-    fn normal_visible_llm_providers_are_qwen_and_gemini_with_openai_advanced() {
+    fn normal_visible_llm_providers_are_qwen_doubao_and_gemini_with_openai_advanced() {
         assert!(is_visible_active_llm_provider(QWEN_LLM_PROVIDER_ID));
-        assert!(!is_visible_active_llm_provider(DOUBAO_LLM_PROVIDER_ID));
+        assert!(is_visible_active_llm_provider(DOUBAO_LLM_PROVIDER_ID));
         assert!(is_visible_active_llm_provider(GEMINI_PROVIDER_ID));
         assert!(!is_visible_active_llm_provider(
             OPENAI_COMPATIBLE_PROVIDER_ID
@@ -155,11 +158,11 @@ mod cloud_first_tests {
         );
         assert_eq!(
             normalize_active_llm_provider_id("doubao"),
-            QWEN_LLM_PROVIDER_ID
+            DOUBAO_LLM_PROVIDER_ID
         );
         assert_eq!(
             normalize_active_llm_provider_id("volcengine"),
-            QWEN_LLM_PROVIDER_ID
+            DOUBAO_LLM_PROVIDER_ID
         );
         assert_eq!(
             normalize_active_llm_provider_id(OPENAI_COMPATIBLE_PROVIDER_ID),

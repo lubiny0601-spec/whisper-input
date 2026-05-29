@@ -1,5 +1,6 @@
 import {
   DOUBAO_ASR_PROVIDER_ID,
+  DOUBAO_LLM_PROVIDER_ID,
   GEMINI_PROVIDER_ID,
   OPENAI_COMPATIBLE_PROVIDER_ID,
   QWEN_LLM_PROVIDER_ID,
@@ -23,7 +24,7 @@ export type AsrProviderPreset = {
 };
 
 export type LlmModelPreset = {
-  providerId: typeof QWEN_LLM_PROVIDER_ID | typeof GEMINI_PROVIDER_ID;
+  providerId: typeof QWEN_LLM_PROVIDER_ID | typeof DOUBAO_LLM_PROVIDER_ID | typeof GEMINI_PROVIDER_ID;
   model: string;
   labelKey: string;
   apiKeyAccount: CloudCredentialAccount;
@@ -40,6 +41,7 @@ export const PROVIDER_API_KEY_LABEL_KEYS = {
 export const PROVIDER_API_KEY_URLS = {
   qwen: 'https://modelstudio.console.alibabacloud.com/ap-southeast-1?tab=api#/api',
   doubaoAsr: 'https://console.volcengine.com/speech/app',
+  doubaoLlm: 'https://console.volcengine.com/ark/apiKey',
   gemini: 'https://aistudio.google.com/apikey',
 } as const;
 
@@ -70,6 +72,14 @@ export const LLM_MODEL_PRESETS = [
     apiKeyAccount: 'asr.qwen.api_key',
     apiKeyUrl: PROVIDER_API_KEY_URLS.qwen,
     apiKeyLinkKey: PROVIDER_API_KEY_LABEL_KEYS.qwen,
+  },
+  {
+    providerId: DOUBAO_LLM_PROVIDER_ID,
+    model: 'doubao-seed-2-0-lite-260215',
+    labelKey: 'settings.providers.presets.doubaoSeed20Lite',
+    apiKeyAccount: 'ark.api_key',
+    apiKeyUrl: PROVIDER_API_KEY_URLS.doubaoLlm,
+    apiKeyLinkKey: PROVIDER_API_KEY_LABEL_KEYS.doubao,
   },
   {
     providerId: GEMINI_PROVIDER_ID,

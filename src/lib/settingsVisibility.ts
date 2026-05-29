@@ -1,13 +1,20 @@
-import { GEMINI_PROVIDER_ID, OPENAI_COMPATIBLE_PROVIDER_ID, QWEN_LLM_PROVIDER_ID } from './product';
+import {
+  DOUBAO_LLM_PROVIDER_ID,
+  GEMINI_PROVIDER_ID,
+  OPENAI_COMPATIBLE_PROVIDER_ID,
+  QWEN_LLM_PROVIDER_ID,
+} from './product';
 import type { OutputLanguagePreference, UserPreferences } from './types';
 
 export const STANDARD_SETTINGS_SECTION_IDS = ['models', 'recording', 'privacy', 'output', 'about'] as const;
 
 export type StandardLlmProviderId =
   | typeof QWEN_LLM_PROVIDER_ID
+  | typeof DOUBAO_LLM_PROVIDER_ID
   | typeof GEMINI_PROVIDER_ID;
 export type VisibleLlmProviderId =
   | typeof QWEN_LLM_PROVIDER_ID
+  | typeof DOUBAO_LLM_PROVIDER_ID
   | typeof GEMINI_PROVIDER_ID
   | typeof OPENAI_COMPATIBLE_PROVIDER_ID;
 export const OPENAI_COMPATIBLE_ACTIVE_LLM_PRESET_KEY = 'openai-compatible:active';
@@ -23,7 +30,7 @@ type NormalizedOutputLanguagePrefs<T extends OutputLanguagePrefs> = Omit<
   OutputLanguagePrefs;
 
 export function visibleStandardLlmProviderIds(): StandardLlmProviderId[] {
-  return [QWEN_LLM_PROVIDER_ID, GEMINI_PROVIDER_ID];
+  return [QWEN_LLM_PROVIDER_ID, DOUBAO_LLM_PROVIDER_ID, GEMINI_PROVIDER_ID];
 }
 
 export function providerSwitchControlsDisabled(isSwitching: boolean): boolean {
@@ -32,11 +39,12 @@ export function providerSwitchControlsDisabled(isSwitching: boolean): boolean {
 
 export function normalizeStandardLlmProvider(id: string | null | undefined): StandardLlmProviderId {
   if (id === GEMINI_PROVIDER_ID) return id;
+  if (id === DOUBAO_LLM_PROVIDER_ID) return id;
   return QWEN_LLM_PROVIDER_ID;
 }
 
 export function normalizeVisibleLlmProvider(id: string | null | undefined): VisibleLlmProviderId {
-  if (id === GEMINI_PROVIDER_ID || id === OPENAI_COMPATIBLE_PROVIDER_ID) {
+  if (id === GEMINI_PROVIDER_ID || id === DOUBAO_LLM_PROVIDER_ID || id === OPENAI_COMPATIBLE_PROVIDER_ID) {
     return id;
   }
   return QWEN_LLM_PROVIDER_ID;
