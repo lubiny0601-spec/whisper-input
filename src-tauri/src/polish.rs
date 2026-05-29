@@ -1282,10 +1282,23 @@ fn should_bypass_proxy_for_base_url(base_url: &str) -> bool {
     let Some(host) = url.host_str() else {
         return false;
     };
-    if host.eq_ignore_ascii_case("localhost") {
+    if should_bypass_proxy_for_host(host) {
         return true;
     }
     host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
+}
+
+fn should_bypass_proxy_for_host(host: &str) -> bool {
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    matches!(
+        host.to_ascii_lowercase().as_str(),
+        // This is the Aliyun Model Studio Beijing endpoint used by the built-in
+        // Qwen LLM preset. It should stay on the domestic direct path instead
+        // of inheriting a stale local VPN/system proxy.
+        "dashscope.aliyuncs.com"
+    )
 }
 
 fn codex_responses_url(base_url: &str) -> String {
@@ -1537,6 +1550,7 @@ enum ThinkingControl {
 
 fn openai_compatible_thinking_control(provider_id: &str) -> Option<ThinkingControl> {
     match provider_id.trim() {
+        crate::product::QWEN_LLM_PROVIDER_ID => Some(ThinkingControl::EnableThinking),
         crate::product::DOUBAO_LLM_PROVIDER_ID => Some(ThinkingControl::DeepSeekThinking),
         "deepseek" => Some(ThinkingControl::DeepSeekThinking),
         "openrouterFree" => Some(ThinkingControl::OpenRouterReasoning),
@@ -3367,7 +3381,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_chat_body_omits_thinking_for_qwen_provider() {
+    fn openai_chat_body_disables_thinking_for_qwen_provider_by_default() {
         let provider = OpenAICompatibleLLMProvider::new(OpenAICompatibleConfig::new(
             crate::product::QWEN_LLM_PROVIDER_ID,
             "Qwen",
@@ -3378,7 +3392,30 @@ mod tests {
 
         let body = provider.chat_body(false, vec![json!({ "role": "user", "content": "hi" })]);
 
-        assert!(body.get("enable_thinking").is_none());
+        assert_eq!(body["enable_thinking"], false);
+    }
+
+    #[test]
+    fn openai_chat_body_enables_thinking_for_qwen_when_requested() {
+        let provider = OpenAICompatibleLLMProvider::new(
+            OpenAICompatibleConfig::new(
+                crate::product::QWEN_LLM_PROVIDER_ID,
+                "Qwen",
+                QWEN_LLM_BASE_URL_CN,
+                "k",
+                QWEN_LLM_DEFAULT_MODEL,
+            )
+            .with_thinking_enabled(true),
+        );
+
+        let body = provider.chat_body(false, vec![json!({ "role": "user", "content": "hi" })]);
+
+        assert_eq!(body["enable_thinking"], true);
+    }
+
+    #[test]
+    fn dashscope_cn_endpoint_bypasses_system_proxy() {
+        assert!(should_bypass_proxy_for_base_url(QWEN_LLM_BASE_URL_CN));
     }
 
     #[test]
