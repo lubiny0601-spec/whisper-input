@@ -260,12 +260,12 @@ fn read_or_default<T: for<'de> Deserialize<'de> + Default>(path: &Path) -> Resul
 // ───────────────────────── credentials vault ─────────────────────────
 //
 // 正常读写走系统凭据库；旧 plaintext JSON 只作为迁移来源。为保持多 provider
-// schema 与 active provider 状态，凭据库里保存一个 v1 JSON payload；payload 会按平台
+// schema 与 active provider 状态，凭据库里保存一个 v2 JSON payload；payload 会按平台
 // 凭据库限制拆成多个条目，避免 Windows 单条凭据 2560 bytes 限制。
 //
-// v1 schema：
+// v2 schema：
 //   {
-//     "version": 1,
+//     "version": 2,
 //     "active": { "asr": "<id>", "llm": "<id>" },
 //     "providers": {
 //       "asr": { "<id>": { "appKey", "accessKey", "resourceId", "apiKey", "baseURL", "model", "vocabularyId" } },
@@ -277,7 +277,7 @@ fn read_or_default<T: for<'de> Deserialize<'de> + Default>(path: &Path) -> Resul
 
 use std::collections::HashMap;
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[allow(non_snake_case)]
 struct CredsRoot {
     #[serde(default = "credsroot_default_version")]
@@ -288,8 +288,20 @@ struct CredsRoot {
     providers: CredsProviders,
 }
 
+const CREDS_SCHEMA_VERSION: u32 = 2;
+
+impl Default for CredsRoot {
+    fn default() -> Self {
+        Self {
+            version: CREDS_SCHEMA_VERSION,
+            active: CredsActive::default(),
+            providers: CredsProviders::default(),
+        }
+    }
+}
+
 fn credsroot_default_version() -> u32 {
-    1
+    CREDS_SCHEMA_VERSION
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -556,8 +568,24 @@ fn migrate_active_legacy_llm_bucket(
     }
 }
 
+fn migrate_qwen_llm_previous_default_model(
+    previous_version: u32,
+    providers: &mut HashMap<String, CredsLlmEntry>,
+) {
+    if previous_version >= CREDS_SCHEMA_VERSION {
+        return;
+    }
+    let Some(entry) = providers.get_mut(crate::product::QWEN_LLM_PROVIDER_ID) else {
+        return;
+    };
+    if entry.model.as_deref().map(str::trim) == Some("qwen3.6-plus") {
+        entry.model = Some(crate::polish::QWEN_LLM_DEFAULT_MODEL.into());
+    }
+}
+
 fn sanitize_credentials(root: &CredsRoot) -> CredsRoot {
     let mut sanitized = root.clone();
+    sanitized.version = CREDS_SCHEMA_VERSION;
     let old_asr = sanitized.active.asr.clone();
     let normalized_asr = normalize_active_asr_provider(&old_asr);
     migrate_active_legacy_asr_bucket(&mut sanitized.providers.asr, &old_asr, &normalized_asr);
@@ -565,6 +593,7 @@ fn sanitize_credentials(root: &CredsRoot) -> CredsRoot {
     let old_llm = sanitized.active.llm.clone();
     let normalized_llm = normalize_active_llm_provider(&old_llm);
     migrate_active_legacy_llm_bucket(&mut sanitized.providers.llm, &old_llm, &normalized_llm);
+    migrate_qwen_llm_previous_default_model(root.version, &mut sanitized.providers.llm);
     sanitized.active.llm = normalized_llm;
     sanitized
 }
@@ -1720,6 +1749,51 @@ mod tests {
         let sanitized = super::sanitize_credentials(&root);
 
         assert_eq!(sanitized.active.asr, crate::product::DOUBAO_ASR_PROVIDER_ID);
+    }
+
+    #[test]
+    fn clean_credentials_migrates_previous_qwen_default_model_to_flash() {
+        let mut root = CredsRoot::default();
+        root.version = 1;
+        root.providers.llm.insert(
+            crate::product::QWEN_LLM_PROVIDER_ID.into(),
+            CredsLlmEntry {
+                apiKey: Some("key".into()),
+                model: Some("qwen3.6-plus".into()),
+                ..Default::default()
+            },
+        );
+
+        let cleaned = clean_credentials(&root);
+        let qwen = cleaned
+            .providers
+            .llm
+            .get(crate::product::QWEN_LLM_PROVIDER_ID)
+            .expect("qwen llm bucket");
+
+        assert_eq!(qwen.model.as_deref(), Some("qwen3.5-flash"));
+    }
+
+    #[test]
+    fn clean_credentials_preserves_current_qwen_plus_selection() {
+        let mut root = CredsRoot::default();
+        root.providers.llm.insert(
+            crate::product::QWEN_LLM_PROVIDER_ID.into(),
+            CredsLlmEntry {
+                apiKey: Some("key".into()),
+                model: Some("qwen3.6-plus".into()),
+                ..Default::default()
+            },
+        );
+
+        let cleaned = clean_credentials(&root);
+        let qwen = cleaned
+            .providers
+            .llm
+            .get(crate::product::QWEN_LLM_PROVIDER_ID)
+            .expect("qwen llm bucket");
+
+        assert_eq!(qwen.model.as_deref(), Some("qwen3.6-plus"));
     }
 
     #[test]

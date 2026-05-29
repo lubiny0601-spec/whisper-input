@@ -67,16 +67,16 @@ export const ASR_PROVIDER_PRESETS = [
 export const LLM_MODEL_PRESETS = [
   {
     providerId: QWEN_LLM_PROVIDER_ID,
-    model: 'qwen3.6-plus',
-    labelKey: 'settings.providers.presets.qwenMax',
+    model: 'qwen3.5-flash',
+    labelKey: 'settings.providers.presets.qwenFlash',
     apiKeyAccount: 'asr.qwen.api_key',
     apiKeyUrl: PROVIDER_API_KEY_URLS.qwen,
     apiKeyLinkKey: PROVIDER_API_KEY_LABEL_KEYS.qwen,
   },
   {
     providerId: QWEN_LLM_PROVIDER_ID,
-    model: 'qwen3.5-flash',
-    labelKey: 'settings.providers.presets.qwenFlash',
+    model: 'qwen3.6-plus',
+    labelKey: 'settings.providers.presets.qwenMax',
     apiKeyAccount: 'asr.qwen.api_key',
     apiKeyUrl: PROVIDER_API_KEY_URLS.qwen,
     apiKeyLinkKey: PROVIDER_API_KEY_LABEL_KEYS.qwen,

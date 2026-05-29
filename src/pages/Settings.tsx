@@ -1440,7 +1440,7 @@ const SETTINGS_PROVIDER_LOGO_SOURCES = {
 const MODEL_BUNDLES: Record<ModelBundleId, { asrProviderId: AsrPresetId; llmPreset: LlmModelPreset; tone: 'blue' | 'outline'; logo: string }> = {
   'qwen-priority': {
     asrProviderId: QWEN_REALTIME_ASR_PROVIDER_ID,
-    llmPreset: findRequiredLlmPreset(QWEN_LLM_PROVIDER_ID, 'qwen3.6-plus'),
+    llmPreset: findRequiredLlmPreset(QWEN_LLM_PROVIDER_ID, 'qwen3.5-flash'),
     tone: 'blue',
     logo: SETTINGS_PROVIDER_LOGO_SOURCES.qwen,
   },
@@ -1477,7 +1477,7 @@ function modelSettingsCopy() {
         bundles: {
           'qwen-priority': {
             title: '千问优先',
-            desc: '千问实时 ASR + 千问 Plus（qwen3.6-plus）润色，共用一个阿里云百炼 API Key。',
+            desc: '千问实时 ASR + 千问 Flash（qwen3.5-flash）润色，共用一个阿里云百炼 API Key。',
           },
           'doubao-backup': {
             title: '豆包备用',
@@ -1500,7 +1500,7 @@ function modelSettingsCopy() {
         bundles: {
           'qwen-priority': {
             title: 'Qwen priority',
-            desc: 'Qwen realtime ASR plus Qwen Plus (qwen3.6-plus) polish, using one Alibaba Cloud Bailian API key.',
+            desc: 'Qwen realtime ASR plus Qwen Flash (qwen3.5-flash) polish, using one Alibaba Cloud Bailian API key.',
           },
           'doubao-backup': {
             title: 'Doubao backup',

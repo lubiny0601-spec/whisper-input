@@ -150,7 +150,7 @@ $failed = $false
 
 Write-Host "Cloud-first standard preflight:"
 Write-Host "  ASR: Qwen realtime by default; Doubao is backup."
-Write-Host "  LLM: Gemini by default."
+Write-Host "  LLM: Qwen Flash by default; Doubao and Gemini are alternatives."
 Write-Host "  Local ASR assets: optional hidden experiment only."
 
 Write-Host "== Common prerequisites =="

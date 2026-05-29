@@ -2988,7 +2988,7 @@ mod tests {
             config.base_url,
             "https://dashscope.aliyuncs.com/compatible-mode/v1"
         );
-        assert_eq!(config.model, "qwen3.6-plus");
+        assert_eq!(config.model, "qwen3.5-flash");
         assert_eq!(config.api_key, "key");
     }
 

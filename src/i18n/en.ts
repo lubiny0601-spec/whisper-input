@@ -130,8 +130,8 @@ export const en: typeof zhCN = {
       },
       llm: {
         title: 'LLM polish',
-        body: 'Configure the AI polish model. Qwen Plus (qwen3.6-plus) is recommended by default, while Gemini remains available as an international option.',
-        geminiNotice: 'Qwen Plus (qwen3.6-plus) is the default recommendation. Choose Gemini 2.5 Flash or Flash-Lite when that better fits your region or cost needs.',
+        body: 'Configure the AI polish model. Qwen Flash (qwen3.5-flash) is recommended by default, while Qwen Plus (qwen3.6-plus) remains available as the stronger option.',
+        geminiNotice: 'Qwen Flash (qwen3.5-flash) is the default recommendation. Choose Qwen Plus, Gemini 2.5 Flash, or Flash-Lite when that better fits your needs.',
         configure: 'Configure LLM',
       },
       hotkey: {

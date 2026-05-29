@@ -53,6 +53,10 @@ const geminiApiKeyUrl = 'https://aistudio.google.com/apikey';
 assert(Boolean(qwenAsrPreset), 'qwen ASR preset should exist');
 assert(Boolean(doubaoAsrPreset), 'doubao ASR preset should exist');
 assert(Boolean(qwenLlmPreset), 'qwen LLM preset should exist');
+assert(
+  qwenLlmPreset?.model === 'qwen3.5-flash',
+  `default Qwen LLM preset should be qwen3.5-flash, got ${qwenLlmPreset?.model}`,
+);
 if (!qwenMaxPreset) throw new Error('Qwen Plus should use the current requested strong model qwen3.6-plus');
 if (!qwenFlashPreset) throw new Error('Qwen Flash should use the fast low-cost model qwen3.5-flash');
 assert(Boolean(geminiLlmPreset), 'gemini LLM preset should exist');

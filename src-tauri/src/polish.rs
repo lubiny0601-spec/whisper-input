@@ -22,7 +22,7 @@ pub const CODEX_OAUTH_PROVIDER_ID: &str = "codex_oauth";
 pub const CODEX_DEFAULT_BASE_URL: &str = "https://chatgpt.com/backend-api";
 pub const CODEX_DEFAULT_MODEL: &str = "gpt-5.3-codex-spark";
 pub const QWEN_LLM_BASE_URL_CN: &str = "https://dashscope.aliyuncs.com/compatible-mode/v1";
-pub const QWEN_LLM_DEFAULT_MODEL: &str = "qwen3.6-plus";
+pub const QWEN_LLM_DEFAULT_MODEL: &str = "qwen3.5-flash";
 pub const DOUBAO_LLM_BASE_URL_CN: &str = "https://ark.cn-beijing.volces.com/api/v3";
 pub const DOUBAO_LLM_DEFAULT_MODEL: &str = "doubao-seed-2-0-lite-260215";
 const CODEX_MIN_TOKEN_TTL_SECS: u64 = 60;
@@ -2986,8 +2986,8 @@ mod tests {
     fn qwen_llm_provider_defaults_model_when_missing() {
         let config =
             llm_config_for_preset(crate::product::QWEN_LLM_PROVIDER_ID, "  ", "key").unwrap();
-        assert_eq!(config.model, "qwen3.6-plus");
-        assert_eq!(config.request_timeout_secs, 120);
+        assert_eq!(config.model, "qwen3.5-flash");
+        assert_eq!(config.request_timeout_secs, DEFAULT_REQUEST_TIMEOUT_SECS);
     }
 
     #[test]

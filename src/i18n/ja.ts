@@ -121,8 +121,8 @@ export const ja: typeof zhCN = {
       },
       llm: {
         title: 'LLM 整文',
-        body: 'AI 整文モデルを設定します。Qwen Plus（qwen3.6-plus）を既定のおすすめとし、Gemini は国際向けオプションとして利用できます。',
-        geminiNotice: '既定のおすすめは Qwen Plus（qwen3.6-plus）です。必要に応じて Gemini 2.5 Flash または Flash-Lite を選択できます。',
+        body: 'AI 整文モデルを設定します。既定のおすすめは Qwen Flash（qwen3.5-flash）で、Qwen Plus（qwen3.6-plus）は高性能オプションとして利用できます。',
+        geminiNotice: '既定のおすすめは Qwen Flash（qwen3.5-flash）です。必要に応じて Qwen Plus、Gemini 2.5 Flash、Flash-Lite を選択できます。',
         configure: 'モデル設定',
       },
     },

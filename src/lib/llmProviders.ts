@@ -15,9 +15,9 @@ export interface WhisperInputLlmProvider {
 export const LLM_PROVIDERS: ReadonlyArray<WhisperInputLlmProvider> = [
   {
     id: QWEN_LLM_PROVIDER_ID,
-    label: 'Qwen Plus · qwen3.6-plus',
+    label: 'Qwen Flash · qwen3.5-flash',
     defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    defaultModel: 'qwen3.6-plus',
+    defaultModel: 'qwen3.5-flash',
   },
   {
     id: GEMINI_PROVIDER_ID,

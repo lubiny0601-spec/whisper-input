@@ -121,8 +121,8 @@ export const ko: typeof zhCN = {
       },
       llm: {
         title: 'LLM 정리',
-        body: 'AI 정리 모델을 설정합니다. Qwen Plus(qwen3.6-plus)가 기본 권장 모델이며 Gemini는 국제 옵션으로 사용할 수 있습니다.',
-        geminiNotice: '기본 권장은 Qwen Plus(qwen3.6-plus)입니다. 필요에 따라 Gemini 2.5 Flash 또는 Flash-Lite를 선택할 수 있습니다.',
+        body: 'AI 정리 모델을 설정합니다. Qwen Flash(qwen3.5-flash)가 기본 권장 모델이며 Qwen Plus(qwen3.6-plus)는 더 강한 옵션으로 사용할 수 있습니다.',
+        geminiNotice: '기본 권장은 Qwen Flash(qwen3.5-flash)입니다. 필요에 따라 Qwen Plus, Gemini 2.5 Flash 또는 Flash-Lite를 선택할 수 있습니다.',
         configure: '모델 설정',
       },
     },

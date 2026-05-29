@@ -128,8 +128,8 @@ export const zhCN = {
       },
       llm: {
         title: 'LLM 润色',
-        body: '配置 AI 润色模型，默认推荐千问 Plus（qwen3.6-plus）；Gemini 可作为国际选项。',
-        geminiNotice: '默认推荐千问 Plus（qwen3.6-plus）；可按需要选择 Gemini 2.5 Flash 或 Flash-Lite。',
+        body: '配置 AI 润色模型，默认推荐千问 Flash（qwen3.5-flash）；千问 Plus（qwen3.6-plus）仍可作为强模型选项。',
+        geminiNotice: '默认推荐千问 Flash（qwen3.5-flash）；可按需要选择千问 Plus、Gemini 2.5 Flash 或 Flash-Lite。',
         configure: '配置润色模型',
       },
       hotkey: {
