@@ -43,7 +43,7 @@ const ASR_NAME_KEY_BY_ID: Record<string, string> = {
 };
 
 const LLM_NAME_KEY_BY_ID: Record<string, string> = {
-  [QWEN_LLM_PROVIDER_ID]: 'qwenMax',
+  [QWEN_LLM_PROVIDER_ID]: 'qwenFlash',
   [DOUBAO_LLM_PROVIDER_ID]: 'doubaoSeed20Lite',
   [OPENAI_COMPATIBLE_PROVIDER_ID]: 'openaiCompatible',
   [GEMINI_PROVIDER_ID]: 'gemini',
@@ -437,10 +437,10 @@ function asrProviderDisplayName(providerId: string, t: ReturnType<typeof useTran
 function llmProviderDisplayName(providerId: string, t: ReturnType<typeof useTranslation>['t']): string {
   if (providerId === GEMINI_PROVIDER_ID) return t('history.providerGemini');
   if (providerId === OPENAI_COMPATIBLE_PROVIDER_ID) return t('history.providerOpenAICompatible');
-  if (providerId === QWEN_LLM_PROVIDER_ID) return t('settings.providers.presets.qwenMax');
+  if (providerId === QWEN_LLM_PROVIDER_ID) return t('settings.providers.presets.qwenFlash');
   if (providerId === DOUBAO_LLM_PROVIDER_ID) return t('settings.providers.presets.doubaoSeed20Lite');
   if (providerId === QWEN_REALTIME_ASR_PROVIDER_ID || providerId === DOUBAO_ASR_PROVIDER_ID || isLocalAsrProviderId(providerId)) {
-    return t('settings.providers.presets.qwenMax');
+    return t('settings.providers.presets.qwenFlash');
   }
   return providerId;
 }

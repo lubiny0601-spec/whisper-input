@@ -130,8 +130,8 @@ export const en: typeof zhCN = {
       },
       llm: {
         title: 'LLM polish',
-        body: 'Configure the AI polish model. Qwen Flash (qwen3.5-flash) is recommended by default, while Qwen Plus (qwen3.6-plus) remains available as the stronger option.',
-        geminiNotice: 'Qwen Flash (qwen3.5-flash) is the default recommendation. Choose Qwen Plus, Gemini 2.5 Flash, or Flash-Lite when that better fits your needs.',
+        body: 'Configure the AI polish model. Qwen Flash (qwen3.5-flash) is recommended by default; choose Gemini 2.5 Flash or Flash-Lite when that better fits your needs.',
+        geminiNotice: 'Qwen Flash (qwen3.5-flash) is the default recommendation. Choose Gemini 2.5 Flash or Flash-Lite when that better fits your needs.',
         configure: 'Configure LLM',
       },
       hotkey: {
@@ -464,7 +464,7 @@ export const en: typeof zhCN = {
         siliconflow: 'SiliconFlow',
         openai: 'OpenAI',
         gemini: 'Gemini',
-        qwenMax: 'Qwen Plus · qwen3.6-plus',
+        qwenMax: 'Qwen Flash · qwen3.5-flash',
         qwenFlash: 'Qwen Flash · qwen3.5-flash',
         doubaoSeedFlash: 'Doubao Seed 1.6 Flash',
         doubaoSeed20Lite: 'Doubao-Seed-2.0-Lite',

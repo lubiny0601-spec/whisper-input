@@ -130,8 +130,8 @@ export const zhTW: typeof zhCN = {
       },
       llm: {
         title: 'LLM 潤色',
-        body: '配置 AI 潤色模型，預設推薦千問 Flash（qwen3.5-flash）；千問 Plus（qwen3.6-plus）仍可作為強模型選項。',
-        geminiNotice: '預設推薦千問 Flash（qwen3.5-flash）；可按需要選擇千問 Plus、Gemini 2.5 Flash 或 Flash-Lite。',
+        body: '配置 AI 潤色模型，預設推薦千問 Flash（qwen3.5-flash）；需要更強生成時可切換 Gemini 2.5 Flash 或 Flash-Lite。',
+        geminiNotice: '預設推薦千問 Flash（qwen3.5-flash）；可按需要選擇 Gemini 2.5 Flash 或 Flash-Lite。',
         configure: '配置潤色模型',
       },
       hotkey: {
@@ -464,7 +464,7 @@ export const zhTW: typeof zhCN = {
         siliconflow: '硅基流動',
         openai: 'OpenAI',
         gemini: 'Gemini',
-        qwenMax: '千問 Plus · qwen3.6-plus',
+        qwenMax: '千問 Flash · qwen3.5-flash',
         qwenFlash: '千問 Flash · qwen3.5-flash',
         doubaoSeedFlash: '豆包 Seed 1.6 Flash',
         doubaoSeed20Lite: 'Doubao-Seed-2.0-Lite',

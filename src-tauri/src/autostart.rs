@@ -11,10 +11,7 @@ pub struct AutostartStatus {
 
 const APP_NAME: &str = crate::product::PRODUCT_NAME;
 
-pub fn classify_windows_run_value(
-    raw_value: Option<&str>,
-    expected_path: &str,
-) -> AutostartStatus {
+pub fn classify_windows_run_value(raw_value: Option<&str>, expected_path: &str) -> AutostartStatus {
     let registered_path = raw_value.and_then(extract_windows_run_exe_path);
     let stale = registered_path
         .as_deref()

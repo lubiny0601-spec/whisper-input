@@ -57,8 +57,8 @@ assertEqual(
     volcengineConfigured: true,
     arkConfigured: true,
   }),
-  true,
-  'configured when Doubao ASR and Doubao LLM are ready',
+  false,
+  'retired Doubao LLM no longer satisfies cloud-first provider setup',
 );
 
 assertEqual(

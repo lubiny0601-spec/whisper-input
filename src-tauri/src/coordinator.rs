@@ -819,6 +819,9 @@ impl Coordinator {
         self.inner
             .shortcut_recording_active
             .store(active, Ordering::SeqCst);
+        if let Some(monitor) = self.inner.hotkey.lock().as_ref() {
+            monitor.set_shortcut_recording_active(active);
+        }
         if active {
             reset_shortcut_held_state(&self.inner);
         }

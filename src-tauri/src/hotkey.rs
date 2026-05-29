@@ -45,6 +45,7 @@ mod tests {
             translation_trigger: RwLock::new(None),
             translation_trigger_held: AtomicBool::new(true),
             translation_modifier_held: AtomicBool::new(true),
+            shortcut_recording_active: AtomicBool::new(false),
         }
     }
 
@@ -108,6 +109,7 @@ pub trait HotkeyAdapter: Send + Sync {
         translation_trigger: Option<HotkeyTrigger>,
     );
     fn reset_held_state(&self);
+    fn set_shortcut_recording_active(&self, active: bool);
     fn shutdown(&self) {}
 }
 
@@ -122,6 +124,9 @@ struct Shared {
     /// Shift（翻译修饰键）当前是否按住。用于在 FLAGS_CHANGED 上识别 down 边沿
     /// （只在 false → true 时往上层发 TranslationModifierPressed）。详见 issue #4。
     translation_modifier_held: AtomicBool,
+    /// 设置页正在录制快捷键时，OS hook 必须放行物理键事件，否则当前触发键
+    /// （尤其 Windows RightAlt）会在进入 WebView 前被吞掉，导致无法重新录制。
+    shortcut_recording_active: AtomicBool,
 }
 
 pub struct HotkeyMonitor {
@@ -160,6 +165,10 @@ impl HotkeyMonitor {
 
     pub fn reset_held_state(&self) {
         self.adapter.reset_held_state();
+    }
+
+    pub fn set_shortcut_recording_active(&self, active: bool) {
+        self.adapter.set_shortcut_recording_active(active);
     }
 
     pub fn capability() -> HotkeyCapability {
@@ -212,6 +221,7 @@ where
         translation_trigger: RwLock::new(None),
         translation_trigger_held: AtomicBool::new(false),
         translation_modifier_held: AtomicBool::new(false),
+        shortcut_recording_active: AtomicBool::new(false),
     });
 
     let thread_shared = Arc::clone(&shared);
@@ -265,6 +275,15 @@ fn reset_shared_held_state(shared: &Shared) {
         .store(false, std::sync::atomic::Ordering::SeqCst);
 }
 
+fn set_shared_shortcut_recording_active(shared: &Shared, active: bool) {
+    shared
+        .shortcut_recording_active
+        .store(active, std::sync::atomic::Ordering::SeqCst);
+    if active {
+        reset_shared_held_state(shared);
+    }
+}
+
 // ─────────────────────────── macOS implementation ───────────────────────────
 
 #[cfg(target_os = "macos")]
@@ -275,9 +294,9 @@ mod platform {
     use std::sync::Arc;
 
     use super::{
-        install_error, reset_shared_held_state, send_or_log, start_listener_thread,
-        update_shared_binding, update_shared_modifier_shortcuts, HotkeyAdapter, HotkeyEvent,
-        Shared, StartupTx,
+        install_error, reset_shared_held_state, send_or_log, set_shared_shortcut_recording_active,
+        start_listener_thread, update_shared_binding, update_shared_modifier_shortcuts,
+        HotkeyAdapter, HotkeyEvent, Shared, StartupTx,
     };
     use crate::types::{HotkeyAdapterKind, HotkeyBinding, HotkeyInstallError, HotkeyTrigger};
 
@@ -339,6 +358,10 @@ mod platform {
 
         fn reset_held_state(&self) {
             reset_shared_held_state(&self.shared);
+        }
+
+        fn set_shortcut_recording_active(&self, active: bool) {
+            set_shared_shortcut_recording_active(&self.shared, active);
         }
 
         fn shutdown(&self) {
@@ -529,6 +552,10 @@ mod platform {
     }
 
     fn handle_flags_changed(ctx: &CallbackContext, event: CgEventRef) {
+        if ctx.shared.shortcut_recording_active.load(Ordering::SeqCst) {
+            return;
+        }
+
         let flags = unsafe { CGEventGetFlags(event) };
 
         // Shift 是翻译模式修饰键 — 与触发键的 keycode 检查独立，任何时刻按 Shift 都生效。
@@ -609,6 +636,10 @@ mod platform {
     }
 
     fn handle_key_down(ctx: &CallbackContext, event: CgEventRef) {
+        if ctx.shared.shortcut_recording_active.load(Ordering::SeqCst) {
+            return;
+        }
+
         let keycode = unsafe { CGEventGetIntegerValueField(event, KEYBOARD_EVENT_KEYCODE) };
         if keycode == ESC_KEYCODE {
             send_or_log(&ctx.tx, HotkeyEvent::Cancelled);
@@ -659,6 +690,7 @@ mod platform {
                 translation_trigger: RwLock::new(None),
                 translation_trigger_held: AtomicBool::new(false),
                 translation_modifier_held: AtomicBool::new(false),
+                shortcut_recording_active: AtomicBool::new(false),
             })
         }
 
@@ -748,9 +780,9 @@ mod platform {
     };
 
     use super::{
-        install_error, reset_shared_held_state, send_or_log, start_listener_thread,
-        update_shared_binding, update_shared_modifier_shortcuts, HotkeyAdapter, HotkeyEvent,
-        Shared, StartupTx,
+        install_error, reset_shared_held_state, send_or_log, set_shared_shortcut_recording_active,
+        start_listener_thread, update_shared_binding, update_shared_modifier_shortcuts,
+        HotkeyAdapter, HotkeyEvent, Shared, StartupTx,
     };
     use crate::types::{HotkeyAdapterKind, HotkeyBinding, HotkeyInstallError, HotkeyTrigger};
 
@@ -814,6 +846,10 @@ mod platform {
 
         fn reset_held_state(&self) {
             reset_shared_held_state(&self.shared);
+        }
+
+        fn set_shortcut_recording_active(&self, active: bool) {
+            set_shared_shortcut_recording_active(&self.shared, active);
         }
 
         fn shutdown(&self) {
@@ -915,6 +951,10 @@ mod platform {
     }
 
     fn dispatch_keyboard_event(ctx: &CallbackContext, vk_code: u32, message: usize) -> bool {
+        if ctx.shared.shortcut_recording_active.load(Ordering::SeqCst) {
+            return false;
+        }
+
         if vk_code == VK_ESCAPE && (message == WM_KEYDOWN || message == WM_SYSKEYDOWN) {
             send_or_log(&ctx.tx, HotkeyEvent::Cancelled);
             return false;
@@ -1054,6 +1094,7 @@ mod platform {
                 translation_trigger: RwLock::new(None),
                 translation_trigger_held: AtomicBool::new(false),
                 translation_modifier_held: AtomicBool::new(false),
+                shortcut_recording_active: AtomicBool::new(false),
             })
         }
 
@@ -1177,6 +1218,19 @@ mod platform {
             ));
             assert_eq!(drain(&right_alt_rx), vec![HotkeyEvent::Pressed]);
         }
+
+        #[test]
+        fn windows_shortcut_recording_passes_right_alt_through_to_webview() {
+            let shared = shared(HotkeyTrigger::RightAlt);
+            shared
+                .shortcut_recording_active
+                .store(true, Ordering::SeqCst);
+            let (ctx, rx) = callback_context(shared);
+
+            assert!(!dispatch_keyboard_event(&ctx, VK_RMENU, WM_KEYDOWN));
+            assert!(!dispatch_keyboard_event(&ctx, VK_RMENU, WM_KEYUP));
+            assert_eq!(drain(&rx), Vec::<HotkeyEvent>::new());
+        }
     }
 }
 
@@ -1192,8 +1246,9 @@ mod platform {
     use rdev::{listen, Event, EventType, Key};
 
     use super::{
-        install_error, reset_shared_held_state, start_listener_thread, update_shared_binding,
-        update_shared_modifier_shortcuts, HotkeyAdapter, HotkeyEvent, Shared, StartupTx,
+        install_error, reset_shared_held_state, set_shared_shortcut_recording_active,
+        start_listener_thread, update_shared_binding, update_shared_modifier_shortcuts,
+        HotkeyAdapter, HotkeyEvent, Shared, StartupTx,
     };
     use crate::types::{HotkeyAdapterKind, HotkeyBinding, HotkeyInstallError, HotkeyTrigger};
 
@@ -1244,6 +1299,10 @@ mod platform {
         fn reset_held_state(&self) {
             reset_shared_held_state(&self.shared);
         }
+
+        fn set_shortcut_recording_active(&self, active: bool) {
+            set_shared_shortcut_recording_active(&self.shared, active);
+        }
     }
 
     fn run_listen_loop(shared: Arc<Shared>, tx: Sender<HotkeyEvent>, status_tx: StartupTx<()>) {
@@ -1272,6 +1331,10 @@ mod platform {
     }
 
     fn dispatch_event(shared: &Shared, tx: &Sender<HotkeyEvent>, event: Event) {
+        if shared.shortcut_recording_active.load(Ordering::SeqCst) {
+            return;
+        }
+
         let trigger = shared.binding.read().trigger;
         match event.event_type {
             EventType::KeyPress(key) => {
@@ -1415,6 +1478,7 @@ mod platform {
                 translation_trigger: RwLock::new(None),
                 translation_trigger_held: AtomicBool::new(false),
                 translation_modifier_held: AtomicBool::new(false),
+                shortcut_recording_active: AtomicBool::new(false),
             }
         }
 

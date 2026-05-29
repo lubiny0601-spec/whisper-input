@@ -11,8 +11,8 @@
 //! - commands: Tauri IPC surface
 
 mod asr;
-mod autostart;
 mod audio_mute;
+mod autostart;
 mod combo_hotkey;
 mod commands;
 mod coordinator;
@@ -27,6 +27,8 @@ mod permissions;
 mod persistence;
 mod polish;
 mod product;
+#[cfg(test)]
+mod provider_latency_smoke;
 mod qa_hotkey;
 #[path = "asr/qingyu_sidecar_protocol.rs"]
 pub mod qingyu_sidecar_protocol;

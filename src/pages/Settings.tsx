@@ -88,7 +88,6 @@ import {
   DEFAULT_ASR_PROVIDER_ID,
   DEFAULT_LLM_PROVIDER_ID,
   DOUBAO_ASR_PROVIDER_ID,
-  DOUBAO_LLM_PROVIDER_ID,
   GEMINI_PROVIDER_ID,
   LOCAL_ASR_PROVIDER_ID,
   OPENAI_COMPATIBLE_PROVIDER_ID,
@@ -1397,7 +1396,7 @@ type LlmPresetKey = `${LlmModelPreset['providerId']}:${LlmModelPreset['model']}`
 type LlmPresetSelection = LlmPresetKey | typeof OPENAI_COMPATIBLE_ACTIVE_LLM_PRESET_KEY;
 type AsrPresetId = AsrProviderPreset['id'];
 type ModelMode = 'simple' | 'advanced';
-type ModelBundleId = 'qwen-priority' | 'doubao-backup';
+type ModelBundleId = 'qwen-priority';
 type AdvancedAsrProviderId =
   | AsrPresetId
   | typeof LOCAL_ASR_PROVIDER_ID
@@ -1444,12 +1443,6 @@ const MODEL_BUNDLES: Record<ModelBundleId, { asrProviderId: AsrPresetId; llmPres
     tone: 'blue',
     logo: SETTINGS_PROVIDER_LOGO_SOURCES.qwen,
   },
-  'doubao-backup': {
-    asrProviderId: DOUBAO_ASR_PROVIDER_ID,
-    llmPreset: findRequiredLlmPreset(DOUBAO_LLM_PROVIDER_ID, 'doubao-seed-2-0-lite-260215'),
-    tone: 'outline',
-    logo: SETTINGS_PROVIDER_LOGO_SOURCES.doubao,
-  },
 };
 
 function bundleIdForSelection(asrProviderId: AsrPresetId, llmPresetKeyValue: LlmPresetSelection): ModelBundleId | null {
@@ -1471,17 +1464,12 @@ function modelSettingsCopy() {
         quickConfigTitle: '2. 快速配置',
         sharedCredentialTitles: {
           'qwen-priority': '千问 ASR / LLM',
-          'doubao-backup': '豆包 ASR / LLM',
         },
         recommended: '推荐',
         bundles: {
           'qwen-priority': {
             title: '千问优先',
             desc: '千问实时 ASR + 千问 Flash（qwen3.5-flash）润色，共用一个阿里云百炼 API Key。',
-          },
-          'doubao-backup': {
-            title: '豆包备用',
-            desc: '豆包流式 ASR + Doubao-Seed-2.0-Lite 润色，ASR 使用语音识别 APP Key，LLM 使用火山方舟 API Key。',
           },
         },
       }
@@ -1494,17 +1482,12 @@ function modelSettingsCopy() {
         quickConfigTitle: '2. Quick configuration',
         sharedCredentialTitles: {
           'qwen-priority': 'Qwen ASR / LLM',
-          'doubao-backup': 'Doubao ASR / LLM',
         },
         recommended: 'Recommended',
         bundles: {
           'qwen-priority': {
             title: 'Qwen priority',
             desc: 'Qwen realtime ASR plus Qwen Flash (qwen3.5-flash) polish, using one Alibaba Cloud Bailian API key.',
-          },
-          'doubao-backup': {
-            title: 'Doubao backup',
-            desc: 'Doubao streaming ASR plus Doubao-Seed-2.0-Lite polish, using Speech APP Key for ASR and Ark API Key for LLM.',
           },
         },
       };

@@ -568,13 +568,7 @@ fn migrate_active_legacy_llm_bucket(
     }
 }
 
-fn migrate_qwen_llm_previous_default_model(
-    previous_version: u32,
-    providers: &mut HashMap<String, CredsLlmEntry>,
-) {
-    if previous_version >= CREDS_SCHEMA_VERSION {
-        return;
-    }
+fn normalize_qwen_llm_model_selection(providers: &mut HashMap<String, CredsLlmEntry>) {
     let Some(entry) = providers.get_mut(crate::product::QWEN_LLM_PROVIDER_ID) else {
         return;
     };
@@ -593,7 +587,7 @@ fn sanitize_credentials(root: &CredsRoot) -> CredsRoot {
     let old_llm = sanitized.active.llm.clone();
     let normalized_llm = normalize_active_llm_provider(&old_llm);
     migrate_active_legacy_llm_bucket(&mut sanitized.providers.llm, &old_llm, &normalized_llm);
-    migrate_qwen_llm_previous_default_model(root.version, &mut sanitized.providers.llm);
+    normalize_qwen_llm_model_selection(&mut sanitized.providers.llm);
     sanitized.active.llm = normalized_llm;
     sanitized
 }
@@ -1715,6 +1709,19 @@ impl CredentialsVault {
             ark_endpoint: lookup_account(&root, CredentialAccount::ArkEndpoint),
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn get_llm_provider_api_key_for_smoke(provider_id: &str) -> Result<Option<String>> {
+        let _guard = credentials_lock().lock();
+        let root = load_credentials();
+        Ok(root
+            .providers
+            .llm
+            .get(provider_id)
+            .and_then(|entry| entry.apiKey.as_ref())
+            .filter(|value| !value.trim().is_empty())
+            .cloned())
+    }
 }
 
 #[cfg(test)]
@@ -1775,7 +1782,7 @@ mod tests {
     }
 
     #[test]
-    fn clean_credentials_preserves_current_qwen_plus_selection() {
+    fn clean_credentials_remaps_current_qwen_plus_selection_to_flash() {
         let mut root = CredsRoot::default();
         root.providers.llm.insert(
             crate::product::QWEN_LLM_PROVIDER_ID.into(),
@@ -1793,7 +1800,7 @@ mod tests {
             .get(crate::product::QWEN_LLM_PROVIDER_ID)
             .expect("qwen llm bucket");
 
-        assert_eq!(qwen.model.as_deref(), Some("qwen3.6-plus"));
+        assert_eq!(qwen.model.as_deref(), Some("qwen3.5-flash"));
     }
 
     #[test]

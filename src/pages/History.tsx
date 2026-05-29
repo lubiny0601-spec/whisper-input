@@ -72,7 +72,7 @@ function providerDisplayName(providerId: string, t: TFunction, kind: 'asr' | 'll
     return t('history.providerOpenAICompatible');
   }
   if (providerId === QWEN_LLM_PROVIDER_ID) {
-    return t('settings.providers.presets.qwenMax');
+    return t('settings.providers.presets.qwenFlash');
   }
   if (providerId === DOUBAO_LLM_PROVIDER_ID || normalizedProviderId === 'doubao' || normalizedProviderId === 'volcengine') {
     return t('settings.providers.presets.doubaoSeed20Lite');

@@ -3223,6 +3223,10 @@ mod tests {
                 mode: HotkeyMode::Toggle,
                 ..Default::default()
             },
+            dictation_hotkey: ShortcutBinding {
+                primary: "RightControl".to_string(),
+                modifiers: vec![],
+            },
             qa_hotkey: Some(ShortcutBinding {
                 primary: ";".to_string(),
                 modifiers: vec!["ctrl".to_string(), "shift".to_string()],

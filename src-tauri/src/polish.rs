@@ -71,12 +71,14 @@ impl OpenAICompatibleConfig {
 }
 
 pub fn effective_request_timeout_secs(provider_id: &str, model: &str) -> u64 {
-    if provider_id.trim() == crate::product::QWEN_LLM_PROVIDER_ID
-        && model.trim() == "qwen3.6-plus"
-    {
-        120
-    } else {
-        DEFAULT_REQUEST_TIMEOUT_SECS
+    let _ = (provider_id, model);
+    DEFAULT_REQUEST_TIMEOUT_SECS
+}
+
+fn normalize_qwen_llm_model(model: &str) -> &str {
+    match model.trim() {
+        "" | "qwen3.6-plus" => QWEN_LLM_DEFAULT_MODEL,
+        other => other,
     }
 }
 
@@ -93,12 +95,7 @@ pub fn llm_config_for_preset(
             if api_key.is_empty() {
                 return Err("Qwen API key is required".to_string());
             }
-            let model = model.trim();
-            let model = if model.is_empty() {
-                QWEN_LLM_DEFAULT_MODEL
-            } else {
-                model
-            };
+            let model = normalize_qwen_llm_model(model);
             let mut config = OpenAICompatibleConfig::new(
                 crate::product::QWEN_LLM_PROVIDER_ID,
                 "Qwen",
@@ -154,11 +151,13 @@ pub enum ActiveLLMProvider {
 }
 
 impl ActiveLLMProvider {
-    /// v1 流式润色只在 OpenAI-compatible 走通；Codex 走 Responses API，shape 与
-    /// chat completions SSE 不同，留给 v2。Gemini 在 coordinator.rs 路径上自己分流，
-    /// 不进 ActiveLLMProvider 枚举。
+    /// OpenAI-compatible providers use one-shot polish in dictation. Qwen/Doubao
+    /// both produce useful first chunks quickly, but their SSE completion path
+    /// has not proven stable enough for the input method latency budget.
+    /// Gemini streams through its own coordinator branch and does not enter this
+    /// enum.
     pub fn supports_streaming_polish(&self) -> bool {
-        matches!(self, Self::OpenAI(_))
+        false
     }
 
     pub async fn polish_streaming<F, C>(
@@ -659,6 +658,7 @@ impl OpenAICompatibleLLMProvider {
         let mut response = response;
         let mut buffer = String::new();
         let mut full_text = String::new();
+        let mut stream_done = false;
         loop {
             // 取消旗标：用户取消 / 关浮窗时立即 break，不再 drain HTTP body。
             // 否则 reqwest 会读完整个流（包括 LLM 后续 token）烧 quota。详见 issue #161。
@@ -675,46 +675,80 @@ impl OpenAICompatibleLLMProvider {
                 .map_err(|e| LLMError::Network(format!("non-utf8 SSE chunk: {e}")))?;
             buffer.push_str(s);
 
-            while let Some(idx) = buffer.find("\n\n") {
-                let event = buffer[..idx].to_string();
-                buffer.drain(..idx + 2);
-                for line in event.lines() {
-                    let Some(payload) = line
-                        .strip_prefix("data: ")
-                        .or_else(|| line.strip_prefix("data:"))
-                    else {
-                        continue;
-                    };
-                    let payload = payload.trim();
-                    if payload.is_empty() || payload == "[DONE]" {
+            while let Some(idx) = buffer.find('\n') {
+                let line = buffer[..idx].trim_end_matches('\r').to_string();
+                buffer.drain(..idx + 1);
+                let Some(payload) = line
+                    .strip_prefix("data: ")
+                    .or_else(|| line.strip_prefix("data:"))
+                else {
+                    continue;
+                };
+                let payload = payload.trim();
+                if payload.is_empty() {
+                    continue;
+                }
+                if payload == "[DONE]" {
+                    stream_done = true;
+                    break;
+                }
+                let v: Value = match serde_json::from_str(payload) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        log::warn!(
+                            "[llm] SSE parse skip: {e}; payload preview: {}",
+                            safe_str_slice(payload, 80)
+                        );
                         continue;
                     }
-                    let v: Value = match serde_json::from_str(payload) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            log::warn!(
-                                "[llm] SSE parse skip: {e}; payload preview: {}",
-                                safe_str_slice(payload, 80)
+                };
+                if let Some(delta) = v["choices"][0]["delta"]["content"].as_str() {
+                    if !delta.is_empty() {
+                        if !ttft_logged {
+                            ttft_logged = true;
+                            log::info!(
+                                "[llm] streaming metrics provider={} model={} stream_enabled=true ttft_ms={}",
+                                self.config.provider_id,
+                                self.config.model,
+                                started_at.elapsed().as_millis()
                             );
-                            continue;
                         }
-                    };
-                    if let Some(delta) = v["choices"][0]["delta"]["content"].as_str() {
-                        if !delta.is_empty() {
-                            if !ttft_logged {
-                                ttft_logged = true;
-                                log::info!(
-                                    "[llm] streaming metrics provider={} model={} stream_enabled=true ttft_ms={}",
-                                    self.config.provider_id,
-                                    self.config.model,
-                                    started_at.elapsed().as_millis()
-                                );
-                            }
-                            full_text.push_str(delta);
-                            on_delta(delta);
-                        }
+                        full_text.push_str(delta);
+                        on_delta(delta);
                     }
                 }
+            }
+            if !stream_done {
+                if let Some(payload) = buffer
+                    .strip_prefix("data: ")
+                    .or_else(|| buffer.strip_prefix("data:"))
+                    .map(str::trim)
+                {
+                    if payload == "[DONE]" {
+                        stream_done = true;
+                        buffer.clear();
+                    } else if let Ok(v) = serde_json::from_str::<Value>(payload) {
+                        if let Some(delta) = v["choices"][0]["delta"]["content"].as_str() {
+                            if !delta.is_empty() {
+                                if !ttft_logged {
+                                    ttft_logged = true;
+                                    log::info!(
+                                        "[llm] streaming metrics provider={} model={} stream_enabled=true ttft_ms={}",
+                                        self.config.provider_id,
+                                        self.config.model,
+                                        started_at.elapsed().as_millis()
+                                    );
+                                }
+                                full_text.push_str(delta);
+                                on_delta(delta);
+                            }
+                        }
+                        buffer.clear();
+                    }
+                }
+            }
+            if stream_done {
+                break;
             }
         }
 
@@ -801,6 +835,7 @@ impl OpenAICompatibleLLMProvider {
         let mut buffer = String::new();
         let mut full_text = String::new();
         let mut delta_count: u64 = 0;
+        let mut stream_done = false;
         loop {
             if should_cancel() {
                 log::info!(
@@ -819,47 +854,82 @@ impl OpenAICompatibleLLMProvider {
                 .map_err(|e| LLMError::Network(format!("non-utf8 SSE chunk: {e}")))?;
             buffer.push_str(s);
 
-            while let Some(idx) = buffer.find("\n\n") {
-                let event = buffer[..idx].to_string();
-                buffer.drain(..idx + 2);
-                for line in event.lines() {
-                    let Some(payload) = line
-                        .strip_prefix("data: ")
-                        .or_else(|| line.strip_prefix("data:"))
-                    else {
-                        continue;
-                    };
-                    let payload = payload.trim();
-                    if payload.is_empty() || payload == "[DONE]" {
+            while let Some(idx) = buffer.find('\n') {
+                let line = buffer[..idx].trim_end_matches('\r').to_string();
+                buffer.drain(..idx + 1);
+                let Some(payload) = line
+                    .strip_prefix("data: ")
+                    .or_else(|| line.strip_prefix("data:"))
+                else {
+                    continue;
+                };
+                let payload = payload.trim();
+                if payload.is_empty() {
+                    continue;
+                }
+                if payload == "[DONE]" {
+                    stream_done = true;
+                    break;
+                }
+                let v: Value = match serde_json::from_str(payload) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        log::warn!(
+                            "[llm] polish SSE parse skip: {e}; payload preview: {}",
+                            safe_str_slice(payload, 80)
+                        );
                         continue;
                     }
-                    let v: Value = match serde_json::from_str(payload) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            log::warn!(
-                                "[llm] polish SSE parse skip: {e}; payload preview: {}",
-                                safe_str_slice(payload, 80)
+                };
+                if let Some(delta) = v["choices"][0]["delta"]["content"].as_str() {
+                    if !delta.is_empty() {
+                        if !ttft_logged {
+                            ttft_logged = true;
+                            log::info!(
+                                "[llm] polish streaming metrics provider={} model={} stream_enabled=true ttft_ms={}",
+                                self.config.provider_id,
+                                self.config.model,
+                                started_at.elapsed().as_millis()
                             );
-                            continue;
                         }
-                    };
-                    if let Some(delta) = v["choices"][0]["delta"]["content"].as_str() {
-                        if !delta.is_empty() {
-                            if !ttft_logged {
-                                ttft_logged = true;
-                                log::info!(
-                                    "[llm] polish streaming metrics provider={} model={} stream_enabled=true ttft_ms={}",
-                                    self.config.provider_id,
-                                    self.config.model,
-                                    started_at.elapsed().as_millis()
-                                );
-                            }
-                            full_text.push_str(delta);
-                            delta_count += 1;
-                            on_delta(delta);
-                        }
+                        full_text.push_str(delta);
+                        delta_count += 1;
+                        on_delta(delta);
                     }
                 }
+            }
+            if !stream_done {
+                if let Some(payload) = buffer
+                    .strip_prefix("data: ")
+                    .or_else(|| buffer.strip_prefix("data:"))
+                    .map(str::trim)
+                {
+                    if payload == "[DONE]" {
+                        stream_done = true;
+                        buffer.clear();
+                    } else if let Ok(v) = serde_json::from_str::<Value>(payload) {
+                        if let Some(delta) = v["choices"][0]["delta"]["content"].as_str() {
+                            if !delta.is_empty() {
+                                if !ttft_logged {
+                                    ttft_logged = true;
+                                    log::info!(
+                                        "[llm] polish streaming metrics provider={} model={} stream_enabled=true ttft_ms={}",
+                                        self.config.provider_id,
+                                        self.config.model,
+                                        started_at.elapsed().as_millis()
+                                    );
+                                }
+                                full_text.push_str(delta);
+                                delta_count += 1;
+                                on_delta(delta);
+                            }
+                        }
+                        buffer.clear();
+                    }
+                }
+            }
+            if stream_done {
+                break;
             }
         }
 
@@ -1189,9 +1259,9 @@ impl CodexOAuthLLMProvider {
                 .map_err(|e| LLMError::Network(format!("non-utf8 SSE chunk: {e}")))?;
             buffer.push_str(s);
 
-            while let Some(idx) = buffer.find("\n\n") {
+            while let Some((idx, delimiter_len)) = find_sse_event_delimiter(&buffer) {
                 let event = buffer[..idx].to_string();
-                buffer.drain(..idx + 2);
+                buffer.drain(..idx + delimiter_len);
                 handle_codex_sse_event(&event, &mut full_text, &mut final_text, &on_delta);
             }
         }
@@ -1266,8 +1336,19 @@ fn chat_completions_url(base_url: &str) -> String {
     format!("{}/chat/completions", without_trailing)
 }
 
+fn find_sse_event_delimiter(buffer: &str) -> Option<(usize, usize)> {
+    match (buffer.find("\n\n"), buffer.find("\r\n\r\n")) {
+        (Some(lf), Some(crlf)) if crlf < lf => Some((crlf, 4)),
+        (Some(lf), _) => Some((lf, 2)),
+        (None, Some(crlf)) => Some((crlf, 4)),
+        (None, None) => None,
+    }
+}
+
 pub(crate) fn http_client_builder(base_url: &str, timeout_secs: u64) -> reqwest::ClientBuilder {
-    let builder = reqwest::Client::builder().timeout(Duration::from_secs(timeout_secs));
+    let builder = reqwest::Client::builder()
+        .timeout(Duration::from_secs(timeout_secs))
+        .connect_timeout(Duration::from_secs(10));
     if should_bypass_proxy_for_base_url(base_url) {
         builder.no_proxy()
     } else {
@@ -2978,8 +3059,18 @@ mod tests {
             config.base_url,
             "https://dashscope.aliyuncs.com/compatible-mode/v1"
         );
-        assert_eq!(config.model, "qwen3.6-plus");
-        assert_eq!(config.request_timeout_secs, 120);
+        assert_eq!(config.model, QWEN_LLM_DEFAULT_MODEL);
+        assert_eq!(config.request_timeout_secs, DEFAULT_REQUEST_TIMEOUT_SECS);
+    }
+
+    #[test]
+    fn qwen_llm_provider_coerces_slow_plus_model_to_flash() {
+        let config =
+            llm_config_for_preset(crate::product::QWEN_LLM_PROVIDER_ID, "qwen3.6-plus", "key")
+                .unwrap();
+
+        assert_eq!(config.model, QWEN_LLM_DEFAULT_MODEL);
+        assert_eq!(config.request_timeout_secs, DEFAULT_REQUEST_TIMEOUT_SECS);
     }
 
     #[test]
@@ -2997,6 +3088,21 @@ mod tests {
                 .unwrap();
         assert_eq!(config.model, "qwen3.5-flash");
         assert_eq!(config.request_timeout_secs, DEFAULT_REQUEST_TIMEOUT_SECS);
+    }
+
+    #[test]
+    fn openai_compatible_provider_uses_one_shot_polish_fallback() {
+        let provider = ActiveLLMProvider::OpenAI(OpenAICompatibleLLMProvider::new(
+            OpenAICompatibleConfig::new(
+                crate::product::QWEN_LLM_PROVIDER_ID,
+                "Qwen",
+                QWEN_LLM_BASE_URL_CN,
+                "key",
+                QWEN_LLM_DEFAULT_MODEL,
+            ),
+        ));
+
+        assert!(!provider.supports_streaming_polish());
     }
 
     #[test]
@@ -3416,6 +3522,16 @@ mod tests {
     #[test]
     fn dashscope_cn_endpoint_bypasses_system_proxy() {
         assert!(should_bypass_proxy_for_base_url(QWEN_LLM_BASE_URL_CN));
+    }
+
+    #[test]
+    fn sse_event_delimiter_accepts_lf_and_crlf_frames() {
+        assert_eq!(find_sse_event_delimiter("data: one\n\nrest"), Some((9, 2)));
+        assert_eq!(
+            find_sse_event_delimiter("data: one\r\n\r\nrest"),
+            Some((9, 4))
+        );
+        assert_eq!(find_sse_event_delimiter("data: partial"), None);
     }
 
     #[test]
