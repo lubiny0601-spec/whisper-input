@@ -219,6 +219,8 @@ export interface UserPreferences {
   /** 流式输入成功后是否把最终润色文本写回剪贴板。开启后 Cmd+V 还能重复粘贴该次输出，
    *  与一次性路径行为对齐。默认 true。 */
   streamingInsertSaveClipboard: boolean;
+  /** Windows RightAlt 历史默认模式修复的一次性迁移标记。 */
+  rightAltHotkeyMigrationVersion: number;
 }
 
 export interface MicrophoneDevice {

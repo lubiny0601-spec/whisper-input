@@ -56,6 +56,7 @@ const previousPrefs: UserPreferences = {
   updateChannel: 'stable',
   streamingInsert: false,
   streamingInsertSaveClipboard: true,
+  rightAltHotkeyMigrationVersion: 1,
 };
 
 const nextPrefs: UserPreferences = {

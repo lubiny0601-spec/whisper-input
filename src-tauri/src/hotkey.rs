@@ -1341,6 +1341,90 @@ mod platform {
         }
 
         #[test]
+        fn windows_altgr_sequence_triggers_right_alt_after_synthetic_left_ctrl() {
+            let shared = shared(HotkeyTrigger::RightAlt);
+            let (ctx, rx) = callback_context(shared);
+
+            assert!(!dispatch_keyboard_event(
+                &ctx,
+                normalize_modifier_vk_code(VK_CONTROL, 0),
+                WM_KEYDOWN
+            ));
+            assert!(dispatch_keyboard_event(
+                &ctx,
+                normalize_modifier_vk_code(VK_MENU, LLKHF_EXTENDED),
+                WM_KEYDOWN
+            ));
+            assert!(dispatch_keyboard_event(
+                &ctx,
+                normalize_modifier_vk_code(VK_MENU, LLKHF_EXTENDED),
+                WM_KEYUP
+            ));
+            assert!(!dispatch_keyboard_event(
+                &ctx,
+                normalize_modifier_vk_code(VK_CONTROL, 0),
+                WM_KEYUP
+            ));
+
+            assert_eq!(
+                drain(&rx),
+                vec![HotkeyEvent::Pressed, HotkeyEvent::Released]
+            );
+        }
+
+        #[test]
+        fn windows_shortcut_recording_reports_altgr_sequence_as_right_alt() {
+            let shared = shared(HotkeyTrigger::RightAlt);
+            shared
+                .shortcut_recording_active
+                .store(true, Ordering::SeqCst);
+            let (ctx, rx) = callback_context(shared);
+
+            assert!(!dispatch_keyboard_event(
+                &ctx,
+                normalize_modifier_vk_code(VK_CONTROL, 0),
+                WM_KEYDOWN
+            ));
+            assert!(!dispatch_keyboard_event(
+                &ctx,
+                normalize_modifier_vk_code(VK_MENU, LLKHF_EXTENDED),
+                WM_KEYDOWN
+            ));
+            assert!(!dispatch_keyboard_event(
+                &ctx,
+                normalize_modifier_vk_code(VK_MENU, LLKHF_EXTENDED),
+                WM_KEYUP
+            ));
+            assert!(!dispatch_keyboard_event(
+                &ctx,
+                normalize_modifier_vk_code(VK_CONTROL, 0),
+                WM_KEYUP
+            ));
+
+            assert_eq!(
+                drain(&rx),
+                vec![
+                    HotkeyEvent::ShortcutRecorderKey {
+                        code: "ControlLeft",
+                        pressed: true,
+                    },
+                    HotkeyEvent::ShortcutRecorderKey {
+                        code: "AltRight",
+                        pressed: true,
+                    },
+                    HotkeyEvent::ShortcutRecorderKey {
+                        code: "AltRight",
+                        pressed: false,
+                    },
+                    HotkeyEvent::ShortcutRecorderKey {
+                        code: "ControlLeft",
+                        pressed: false,
+                    },
+                ]
+            );
+        }
+
+        #[test]
         fn windows_shortcut_recording_reports_right_alt_without_swallowing() {
             let shared = shared(HotkeyTrigger::RightAlt);
             shared

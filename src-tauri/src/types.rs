@@ -302,6 +302,10 @@ pub struct UserPreferences {
     /// 默认 true（更接近用户习惯）。
     #[serde(default = "default_true")]
     pub streaming_insert_save_clipboard: bool,
+    /// 一次性迁移标记：Windows 历史配置里出现过默认 RightAlt 被保存成 Hold 模式，
+    /// 用户短按时会在 ASR 握手完成前立即停止，看起来像右 Alt 失效。
+    #[serde(default)]
+    pub right_alt_hotkey_migration_version: u32,
 }
 
 fn default_local_asr_model() -> String {
@@ -416,6 +420,8 @@ struct UserPreferencesWire {
     streaming_insert: bool,
     #[serde(default = "default_true")]
     streaming_insert_save_clipboard: bool,
+    #[serde(default)]
+    right_alt_hotkey_migration_version: u32,
 }
 
 impl Default for UserPreferencesWire {
@@ -461,6 +467,7 @@ impl Default for UserPreferencesWire {
             start_minimized: prefs.start_minimized,
             streaming_insert: prefs.streaming_insert,
             streaming_insert_save_clipboard: prefs.streaming_insert_save_clipboard,
+            right_alt_hotkey_migration_version: prefs.right_alt_hotkey_migration_version,
         }
     }
 }
@@ -534,6 +541,7 @@ impl<'de> Deserialize<'de> for UserPreferences {
             start_minimized: wire.start_minimized,
             streaming_insert: wire.streaming_insert,
             streaming_insert_save_clipboard: wire.streaming_insert_save_clipboard,
+            right_alt_hotkey_migration_version: wire.right_alt_hotkey_migration_version,
         })
     }
 }
@@ -659,6 +667,7 @@ impl Default for UserPreferences {
             start_minimized: false,
             streaming_insert: true,
             streaming_insert_save_clipboard: true,
+            right_alt_hotkey_migration_version: 0,
         }
     }
 }

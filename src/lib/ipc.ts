@@ -96,6 +96,7 @@ const mockSettings: UserPreferences = {
   updateChannel: 'stable',
   streamingInsert: true,
   streamingInsertSaveClipboard: true,
+  rightAltHotkeyMigrationVersion: 1,
 };
 
 const mockHotkeyCapability: HotkeyCapability = {
