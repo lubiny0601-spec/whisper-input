@@ -1,0 +1,37 @@
+name: Hotkey regression
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  windows-hotkey:
+    name: Windows hotkey regression
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Use stable MSVC Rust
+        shell: pwsh
+        run: |
+          rustup toolchain install stable-x86_64-pc-windows-msvc
+          rustup default stable-x86_64-pc-windows-msvc
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Run hotkey regression tests
+        run: npm run check:hotkey-injection
