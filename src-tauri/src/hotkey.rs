@@ -786,25 +786,17 @@ mod platform {
         HotkeyAdapter, HotkeyEvent, Shared, StartupTx,
     };
     use crate::types::{HotkeyAdapterKind, HotkeyBinding, HotkeyInstallError, HotkeyTrigger};
+    use crate::windows_hotkey_core::{
+        normalize_modifier_vk_code, shortcut_recorder_code_from_vk,
+        trigger_to_vk_code as windows_trigger_to_vk_code, WindowsHotkeyTrigger, VK_ESCAPE,
+        VK_LSHIFT, VK_RSHIFT, VK_SHIFT,
+    };
 
     const WM_KEYDOWN: usize = 0x0100;
     const WM_KEYUP: usize = 0x0101;
     const WM_SYSKEYDOWN: usize = 0x0104;
     const WM_SYSKEYUP: usize = 0x0105;
 
-    const VK_ESCAPE: u32 = 0x1B;
-    const VK_SHIFT: u32 = 0x10;
-    const VK_CONTROL: u32 = 0x11;
-    const VK_MENU: u32 = 0x12;
-    const VK_LSHIFT: u32 = 0xA0;
-    const VK_RSHIFT: u32 = 0xA1;
-    const VK_LCONTROL: u32 = 0xA2;
-    const VK_RCONTROL: u32 = 0xA3;
-    const VK_LMENU: u32 = 0xA4;
-    const VK_RMENU: u32 = 0xA5;
-    const VK_LWIN: u32 = 0x5B;
-    const VK_RWIN: u32 = 0x5C;
-    const LLKHF_EXTENDED: u32 = 0x0000_0001;
     const LLKHF_INJECTED: u32 = 0x0000_0010;
     const ACCEPT_INJECTED_ENV: &str = "OPENLESS_ACCEPT_SYNTHETIC_HOTKEY_EVENTS";
 
@@ -1056,27 +1048,6 @@ mod platform {
         true
     }
 
-    fn normalize_modifier_vk_code(vk_code: u32, flags: u32) -> u32 {
-        let extended = flags & LLKHF_EXTENDED != 0;
-        match vk_code {
-            VK_CONTROL => {
-                if extended {
-                    VK_RCONTROL
-                } else {
-                    VK_LCONTROL
-                }
-            }
-            VK_MENU => {
-                if extended {
-                    VK_RMENU
-                } else {
-                    VK_LMENU
-                }
-            }
-            _ => vk_code,
-        }
-    }
-
     fn handle_optional_modifier_trigger(
         ctx: &CallbackContext,
         vk_code: u32,
@@ -1109,29 +1080,15 @@ mod platform {
         // Windows 低层 hook 能区分左右 Alt，LeftOption / RightOption 必须保留物理侧。
         // 其他少量跨平台别名仍按 Windows 可用物理键折叠：
         // - Fn 复用 RightControl / VK_RCONTROL
-        match trigger {
-            HotkeyTrigger::RightControl => VK_RCONTROL,
-            HotkeyTrigger::LeftControl => VK_LCONTROL,
-            HotkeyTrigger::RightOption | HotkeyTrigger::RightAlt => VK_RMENU,
-            HotkeyTrigger::RightCommand => VK_RWIN,
-            HotkeyTrigger::LeftOption => VK_LMENU,
-            HotkeyTrigger::Fn => VK_RCONTROL,
+        let windows_trigger = match trigger {
+            HotkeyTrigger::RightControl | HotkeyTrigger::Fn => WindowsHotkeyTrigger::RightControl,
+            HotkeyTrigger::LeftControl => WindowsHotkeyTrigger::LeftControl,
+            HotkeyTrigger::RightOption | HotkeyTrigger::RightAlt => WindowsHotkeyTrigger::RightAlt,
+            HotkeyTrigger::RightCommand => WindowsHotkeyTrigger::RightCommand,
+            HotkeyTrigger::LeftOption => WindowsHotkeyTrigger::LeftAlt,
             HotkeyTrigger::Custom => unreachable!("custom combo hotkeys use ComboHotkeyMonitor"),
-        }
-    }
-
-    fn shortcut_recorder_code_from_vk(vk_code: u32) -> Option<&'static str> {
-        match vk_code {
-            VK_RMENU => Some("AltRight"),
-            VK_LMENU => Some("AltLeft"),
-            VK_RCONTROL => Some("ControlRight"),
-            VK_LCONTROL => Some("ControlLeft"),
-            VK_RSHIFT => Some("ShiftRight"),
-            VK_LSHIFT => Some("ShiftLeft"),
-            VK_RWIN => Some("MetaRight"),
-            VK_LWIN => Some("MetaLeft"),
-            _ => None,
-        }
+        };
+        windows_trigger_to_vk_code(windows_trigger)
     }
 
     fn accept_injected_events() -> bool {
@@ -1141,6 +1098,10 @@ mod platform {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use crate::windows_hotkey_core::{
+            LLKHF_EXTENDED, VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_MENU, VK_RCONTROL, VK_RMENU,
+            VK_RWIN,
+        };
         use parking_lot::RwLock;
         use std::sync::atomic::AtomicBool;
         use std::sync::mpsc;

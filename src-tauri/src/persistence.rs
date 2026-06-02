@@ -25,11 +25,14 @@ use crate::types::{
     CorrectionRule, DictationSession, DictionaryEntry, HotkeyMode, HotkeyTrigger, UserPreferences,
     VocabPresetStore,
 };
+use crate::right_alt_migration_core::{
+    should_mark_windows_right_alt_migration, should_repair_windows_right_alt_default_hold,
+    RIGHT_ALT_HOTKEY_MIGRATION_VERSION,
+};
 
 const HISTORY_CAP: usize = 200;
 const HISTORY_FILE: &str = "history.json";
 const PREFERENCES_FILE: &str = "preferences.json";
-const RIGHT_ALT_HOTKEY_MIGRATION_VERSION: u32 = 1;
 /// 与 Swift `Sources/OpenLessPersistence/DictionaryStore.swift` 同名，
 /// 让旧版词汇表在升级后无缝继承。**不要**改成 `vocab.json`，会丢用户数据。
 const VOCAB_FILE: &str = "dictionary.json";
@@ -1286,17 +1289,18 @@ impl PreferencesStore {
 fn repair_windows_right_alt_default_mode_once(prefs: &mut UserPreferences) -> bool {
     #[cfg(target_os = "windows")]
     {
-        if prefs.right_alt_hotkey_migration_version >= RIGHT_ALT_HOTKEY_MIGRATION_VERSION {
+        if !should_mark_windows_right_alt_migration(prefs.right_alt_hotkey_migration_version) {
             return false;
         }
 
-        let stale_default_right_alt_hold = prefs.hotkey.trigger == HotkeyTrigger::RightAlt
-            && prefs.hotkey.mode == HotkeyMode::Hold
-            && prefs.dictation_hotkey.primary.eq_ignore_ascii_case("RightAlt")
-            && prefs.dictation_hotkey.modifiers.is_empty()
-            && prefs.custom_combo_hotkey.is_none();
-
-        if stale_default_right_alt_hold {
+        if should_repair_windows_right_alt_default_hold(
+            prefs.right_alt_hotkey_migration_version,
+            prefs.hotkey.trigger == HotkeyTrigger::RightAlt,
+            prefs.hotkey.mode == HotkeyMode::Hold,
+            &prefs.dictation_hotkey.primary,
+            prefs.dictation_hotkey.modifiers.is_empty(),
+            prefs.custom_combo_hotkey.is_some(),
+        ) {
             prefs.hotkey.mode = HotkeyMode::Toggle;
             log::info!(
                 "[prefs] repaired legacy Windows RightAlt default mode from Hold to Toggle"

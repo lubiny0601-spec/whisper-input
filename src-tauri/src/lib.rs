@@ -27,6 +27,7 @@ mod permissions;
 mod persistence;
 mod polish;
 mod product;
+mod right_alt_migration_core;
 #[cfg(test)]
 mod provider_latency_smoke;
 mod qa_hotkey;
@@ -37,6 +38,7 @@ mod selection;
 mod shortcut_binding;
 mod types;
 mod unicode_keystroke;
+mod windows_hotkey_core;
 mod windows_ime_ipc;
 mod windows_ime_profile;
 mod windows_ime_protocol;

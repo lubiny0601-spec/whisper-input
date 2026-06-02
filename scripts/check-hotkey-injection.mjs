@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 
 const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 const cargo = process.platform === 'win32' ? 'cargo.exe' : 'cargo';
+const githubActions = process.env.GITHUB_ACTIONS === 'true';
 
 const checks = [
   {
@@ -20,17 +21,27 @@ const checks = [
     args: ['--yes', 'tsx', 'src/lib/windowHotkeyFallback.test.ts'],
   },
   {
-    label: 'Windows hotkey hook unit tests',
+    label: githubActions
+      ? 'CI-safe Windows RightAlt core tests'
+      : 'Windows hotkey hook unit tests',
     command: cargo,
-    args: [
-      'test',
-      '--manifest-path',
-      'src-tauri/Cargo.toml',
-      'hotkey',
-      '--lib',
-      '--',
-      '--test-threads=1',
-    ],
+    args: githubActions
+      ? [
+          'test',
+          '--manifest-path',
+          'src-tauri/hotkey-regression/Cargo.toml',
+          '--',
+          '--test-threads=1',
+        ]
+      : [
+          'test',
+          '--manifest-path',
+          'src-tauri/Cargo.toml',
+          'hotkey',
+          '--lib',
+          '--',
+          '--test-threads=1',
+        ],
   },
 ];
 
