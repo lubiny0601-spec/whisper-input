@@ -22,7 +22,15 @@ const checks = [
   {
     label: 'Windows hotkey hook unit tests',
     command: cargo,
-    args: ['test', '--manifest-path', 'src-tauri/Cargo.toml', 'hotkey', '--lib'],
+    args: [
+      'test',
+      '--manifest-path',
+      'src-tauri/Cargo.toml',
+      'hotkey',
+      '--lib',
+      '--',
+      '--test-threads=1',
+    ],
   },
 ];
 

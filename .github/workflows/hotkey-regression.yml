@@ -9,7 +9,8 @@ on:
 jobs:
   windows-hotkey:
     name: Windows hotkey regression
-    runs-on: windows-latest
+    runs-on: windows-2022
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -34,4 +35,5 @@ jobs:
         run: npm run build
 
       - name: Run hotkey regression tests
+        timeout-minutes: 12
         run: npm run check:hotkey-injection
