@@ -61,21 +61,17 @@ export function WindowChrome({
         position: 'relative',
         borderRadius: 'var(--ol-window-shell-radius)',
         boxShadow: os === 'win'
-          ? '0 18px 42px -26px rgba(15, 17, 22, 0.42), 0 0 0 1px rgba(0, 0, 0, 0.08)'
+          ? '0 18px 42px -26px rgba(15, 17, 22, 0.42)'
           : 'var(--ol-shadow-xl)',
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        border: os === 'mac'
-          ? 'none'
-          : os === 'win'
-            ? '1px solid var(--wi-line)'
-            : '0.5px solid rgba(0,0,0,.10)',
+        border: 'none',
         background: 'var(--wi-window)',
         backdropFilter: 'blur(var(--ol-glass-blur-strong))',
         WebkitBackdropFilter: 'blur(var(--ol-glass-blur-strong))',
         animation: os === 'win' ? undefined : 'ol-window-enter 0.42s var(--ol-motion-spring) both',
-        transition: 'box-shadow 0.28s var(--ol-motion-soft), border-color 0.28s var(--ol-motion-soft), backdrop-filter 0.28s var(--ol-motion-soft)',
+        transition: 'box-shadow 0.28s var(--ol-motion-soft), backdrop-filter 0.28s var(--ol-motion-soft)',
         willChange: 'opacity, transform, filter',
       } as CSSProperties}
     >
