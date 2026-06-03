@@ -11,6 +11,7 @@ pub const VK_RMENU: u32 = 0xA5;
 pub const VK_LWIN: u32 = 0x5B;
 pub const VK_RWIN: u32 = 0x5C;
 pub const LLKHF_EXTENDED: u32 = 0x0000_0001;
+pub const LLKHF_INJECTED: u32 = 0x0000_0010;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowsHotkeyTrigger {
@@ -40,6 +41,17 @@ pub fn normalize_modifier_vk_code(vk_code: u32, flags: u32) -> u32 {
         }
         _ => vk_code,
     }
+}
+
+pub fn should_process_keyboard_event(
+    vk_code: u32,
+    flags: u32,
+    accept_injected_events: bool,
+) -> bool {
+    if flags & LLKHF_INJECTED == 0 || accept_injected_events {
+        return true;
+    }
+    matches!(vk_code, VK_MENU | VK_LMENU | VK_RMENU)
 }
 
 pub fn trigger_to_vk_code(trigger: WindowsHotkeyTrigger) -> u32 {
@@ -87,5 +99,20 @@ mod tests {
     #[test]
     fn shortcut_recorder_reports_right_alt_as_alt_right() {
         assert_eq!(shortcut_recorder_code_from_vk(VK_RMENU), Some("AltRight"));
+    }
+
+    #[test]
+    fn injected_alt_events_are_accepted_for_windows_right_alt() {
+        assert!(should_process_keyboard_event(
+            VK_MENU,
+            LLKHF_INJECTED | LLKHF_EXTENDED,
+            false
+        ));
+        assert!(should_process_keyboard_event(
+            VK_RMENU,
+            LLKHF_INJECTED,
+            false
+        ));
+        assert!(!should_process_keyboard_event(0x41, LLKHF_INJECTED, false));
     }
 }

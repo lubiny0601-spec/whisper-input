@@ -790,9 +790,9 @@ mod platform {
     };
     use crate::types::{HotkeyAdapterKind, HotkeyBinding, HotkeyInstallError, HotkeyTrigger};
     use crate::windows_hotkey_core::{
-        normalize_modifier_vk_code, shortcut_recorder_code_from_vk,
-        trigger_to_vk_code as windows_trigger_to_vk_code, WindowsHotkeyTrigger, VK_ESCAPE,
-        VK_LSHIFT, VK_RSHIFT, VK_SHIFT,
+        normalize_modifier_vk_code, shortcut_recorder_code_from_vk, should_process_keyboard_event,
+        trigger_to_vk_code as windows_trigger_to_vk_code, WindowsHotkeyTrigger, LLKHF_INJECTED,
+        VK_ESCAPE, VK_LSHIFT, VK_RSHIFT, VK_SHIFT,
     };
 
     const WM_KEYDOWN: usize = 0x0100;
@@ -800,7 +800,6 @@ mod platform {
     const WM_SYSKEYDOWN: usize = 0x0104;
     const WM_SYSKEYUP: usize = 0x0105;
 
-    const LLKHF_INJECTED: u32 = 0x0000_0010;
     const ACCEPT_INJECTED_ENV: &str = "OPENLESS_ACCEPT_SYNTHETIC_HOTKEY_EVENTS";
 
     static HOOK_CONTEXT: AtomicPtr<CallbackContext> = AtomicPtr::new(std::ptr::null_mut());
@@ -930,8 +929,20 @@ mod platform {
         if code == HC_ACTION as i32 && lparam.0 != 0 {
             if let Some(ctx) = callback_context() {
                 let keyboard = *(lparam.0 as *const KBDLLHOOKSTRUCT);
-                if keyboard.flags.0 & LLKHF_INJECTED == 0 || accept_injected_events() {
+                if should_process_keyboard_event(
+                    keyboard.vkCode,
+                    keyboard.flags.0,
+                    accept_injected_events(),
+                ) {
                     let vk_code = normalize_modifier_vk_code(keyboard.vkCode, keyboard.flags.0);
+                    if keyboard.flags.0 & LLKHF_INJECTED != 0 {
+                        log::info!(
+                            "[hotkey] Windows injected Alt event accepted raw_vk={} normalized_vk={} flags=0x{:x}",
+                            keyboard.vkCode,
+                            vk_code,
+                            keyboard.flags.0
+                        );
+                    }
                     if dispatch_keyboard_event(ctx, vk_code, wparam.0) {
                         return LRESULT(1);
                     }
