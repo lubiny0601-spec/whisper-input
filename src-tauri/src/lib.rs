@@ -283,6 +283,7 @@ pub fn run() {
             commands::get_credentials,
             commands::set_credential,
             commands::list_history,
+            commands::get_usage_stats,
             commands::delete_history_entry,
             commands::clear_history,
             commands::clear_local_cache,

@@ -22,11 +22,13 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::types::{
-    CorrectionRule, DictationSession, DictionaryEntry, UserPreferences, VocabPresetStore,
+    CorrectionRule, DictationSession, DictionaryEntry, UsageStats, UserPreferences,
+    VocabPresetStore,
 };
 
 const HISTORY_CAP: usize = 200;
 const HISTORY_FILE: &str = "history.json";
+const USAGE_STATS_FILE: &str = "usage-stats.json";
 const PREFERENCES_FILE: &str = "preferences.json";
 /// 与 Swift `Sources/OpenLessPersistence/DictionaryStore.swift` 同名，
 /// 让旧版词汇表在升级后无缝继承。**不要**改成 `vocab.json`，会丢用户数据。
@@ -1129,6 +1131,7 @@ fn write_account(root: &mut CredsRoot, account: CredentialAccount, value: Option
 
 pub struct HistoryStore {
     path: PathBuf,
+    stats_path: PathBuf,
     lock: Mutex<()>,
 }
 
@@ -1138,13 +1141,28 @@ impl HistoryStore {
         ensure_dir(&dir)?;
         Ok(Self {
             path: dir.join(HISTORY_FILE),
+            stats_path: dir.join(USAGE_STATS_FILE),
             lock: Mutex::new(()),
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_dir_for_tests(dir: PathBuf) -> Self {
+        Self {
+            path: dir.join(HISTORY_FILE),
+            stats_path: dir.join(USAGE_STATS_FILE),
+            lock: Mutex::new(()),
+        }
     }
 
     pub fn list(&self) -> Result<Vec<DictationSession>> {
         let _guard = self.lock.lock();
         self.read_locked()
+    }
+
+    pub fn usage_stats(&self) -> Result<UsageStats> {
+        let _guard = self.lock.lock();
+        self.read_or_migrate_usage_stats_locked()
     }
 
     pub fn append(&self, session: DictationSession) -> Result<()> {
@@ -1161,6 +1179,14 @@ impl HistoryStore {
     ) -> Result<()> {
         let _guard = self.lock.lock();
         let mut sessions = self.read_locked()?;
+        let mut stats = self.read_or_migrate_usage_stats_from_sessions_locked(&sessions)?;
+        stats.total_chars = stats
+            .total_chars
+            .saturating_add(session.final_text.encode_utf16().count() as u64);
+        stats.total_duration_ms = stats
+            .total_duration_ms
+            .saturating_add(session.duration_ms.unwrap_or(0));
+        stats.total_segments = stats.total_segments.saturating_add(1);
         // Prepend so the newest session is at index 0, matching the Swift impl.
         sessions.insert(0, session);
         if retention_days > 0 {
@@ -1175,6 +1201,7 @@ impl HistoryStore {
         if sessions.len() > HISTORY_CAP {
             sessions.truncate(HISTORY_CAP);
         }
+        self.write_usage_stats_locked(&stats)?;
         self.write_locked(&sessions)
     }
 
@@ -1212,6 +1239,7 @@ impl HistoryStore {
 
     pub fn clear(&self) -> Result<()> {
         let _guard = self.lock.lock();
+        self.write_usage_stats_locked(&UsageStats::default())?;
         self.write_locked(&Vec::<DictationSession>::new())
     }
 
@@ -1223,6 +1251,43 @@ impl HistoryStore {
         let json = serde_json::to_vec_pretty(sessions).context("encode history failed")?;
         atomic_write(&self.path, &json)
     }
+
+    fn read_or_migrate_usage_stats_locked(&self) -> Result<UsageStats> {
+        let sessions = self.read_locked()?;
+        self.read_or_migrate_usage_stats_from_sessions_locked(&sessions)
+    }
+
+    fn read_or_migrate_usage_stats_from_sessions_locked(
+        &self,
+        sessions: &[DictationSession],
+    ) -> Result<UsageStats> {
+        if self.stats_path.exists() {
+            return read_or_default::<UsageStats>(&self.stats_path);
+        }
+        let stats = usage_stats_from_sessions(sessions);
+        self.write_usage_stats_locked(&stats)?;
+        Ok(stats)
+    }
+
+    fn write_usage_stats_locked(&self, stats: &UsageStats) -> Result<()> {
+        let json = serde_json::to_vec_pretty(stats).context("encode usage stats failed")?;
+        atomic_write(&self.stats_path, &json)
+    }
+}
+
+fn usage_stats_from_sessions(sessions: &[DictationSession]) -> UsageStats {
+    sessions
+        .iter()
+        .fold(UsageStats::default(), |mut stats, session| {
+            stats.total_chars = stats
+                .total_chars
+                .saturating_add(session.final_text.encode_utf16().count() as u64);
+            stats.total_duration_ms = stats
+                .total_duration_ms
+                .saturating_add(session.duration_ms.unwrap_or(0));
+            stats.total_segments = stats.total_segments.saturating_add(1);
+            stats
+        })
 }
 
 // ───────────────────────── PreferencesStore ─────────────────────────
@@ -1729,10 +1794,12 @@ mod tests {
     use super::{
         chunk_json_payload, clean_credentials, list_vocab_presets, normalize_active_llm_provider,
         save_vocab_presets, validate_correction_rule_syntax, write_account, CredentialAccount,
-        CredsAsrEntry, CredsChunkManifest, CredsLlmEntry, CredsRoot, DictionaryStore,
+        CredsAsrEntry, CredsChunkManifest, CredsLlmEntry, CredsRoot, DictionaryStore, HistoryStore,
         KEYRING_CHUNK_MAX_UTF16_UNITS, LEGACY_ASR_PROVIDER_ID,
     };
-    use crate::types::{DictionaryEntry, VocabPreset, VocabPresetStore};
+    use crate::types::{
+        DictationSession, DictionaryEntry, InsertStatus, PolishMode, VocabPreset, VocabPresetStore,
+    };
     use std::fs;
     use std::path::PathBuf;
 
@@ -1850,6 +1917,68 @@ mod tests {
             super::next_stable_chunk_generation(Some("stable-b")),
             "stable-a"
         );
+    }
+
+    #[test]
+    fn usage_stats_keep_all_time_chars_when_history_is_capped() {
+        let dir = std::env::temp_dir().join(format!(
+            "whisper-input-history-stats-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let history = HistoryStore::with_dir_for_tests(dir.clone());
+
+        for index in 0..=super::HISTORY_CAP {
+            history
+                .append_with_retention(test_session(index, "abc"), 0)
+                .unwrap();
+        }
+
+        assert_eq!(history.list().unwrap().len(), super::HISTORY_CAP);
+        assert_eq!(
+            history.usage_stats().unwrap().total_chars,
+            ((super::HISTORY_CAP + 1) * 3) as u64
+        );
+
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn clearing_history_resets_usage_stats() {
+        let dir = std::env::temp_dir().join(format!(
+            "whisper-input-history-clear-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let history = HistoryStore::with_dir_for_tests(dir.clone());
+
+        history
+            .append_with_retention(test_session(1, "abc"), 0)
+            .unwrap();
+        history.clear().unwrap();
+
+        assert_eq!(history.list().unwrap().len(), 0);
+        assert_eq!(history.usage_stats().unwrap().total_chars, 0);
+
+        fs::remove_dir_all(dir).ok();
+    }
+
+    fn test_session(index: usize, final_text: &str) -> DictationSession {
+        DictationSession {
+            id: format!("session-{index}"),
+            created_at: format!("2026-06-08T00:{:02}:00Z", index % 60),
+            raw_transcript: final_text.to_string(),
+            final_text: final_text.to_string(),
+            mode: PolishMode::Light,
+            app_bundle_id: None,
+            app_name: None,
+            insert_status: InsertStatus::Inserted,
+            error_code: None,
+            duration_ms: Some(1000),
+            dictionary_entry_count: None,
+            asr_provider_id: None,
+            llm_provider_id: None,
+        }
     }
 
     #[test]

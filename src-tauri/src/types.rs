@@ -1241,6 +1241,15 @@ pub struct TodayMetrics {
     pub total_duration_ms: u64,
 }
 
+/// All-time usage counters that must outlive the capped history archive.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageStats {
+    pub total_chars: u64,
+    pub total_duration_ms: u64,
+    pub total_segments: u64,
+}
+
 /// 划词追问浮窗里一条对话消息。多轮提问会累积成 Vec<QaChatMessage>，
 /// 整段送给 LLM 维持上下文。详见 issue #118 v2。
 #[derive(Debug, Clone, Serialize, Deserialize)]

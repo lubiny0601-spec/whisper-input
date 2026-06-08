@@ -34,7 +34,8 @@ use crate::recorder::{AudioConsumer, Recorder};
 use crate::types::{
     ChineseScriptPreference, ComboBinding, CorrectionRule, CredentialsStatus, DictationSession,
     DictionaryEntry, HotkeyCapability, HotkeyStatus, OutputLanguagePreference, PolishMode,
-    ShortcutBinding, UpdateChannel, UserPreferences, VocabPresetStore, WindowsImeStatus,
+    ShortcutBinding, UpdateChannel, UsageStats, UserPreferences, VocabPresetStore,
+    WindowsImeStatus,
 };
 
 type CoordinatorState<'a> = State<'a, Arc<Coordinator>>;
@@ -1379,6 +1380,11 @@ fn parse_account(s: &str) -> Result<CredentialAccount, String> {
 #[tauri::command]
 pub fn list_history(coord: CoordinatorState<'_>) -> Result<Vec<DictationSession>, String> {
     coord.history().list().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_usage_stats(coord: CoordinatorState<'_>) -> Result<UsageStats, String> {
+    coord.history().usage_stats().map_err(|e| e.to_string())
 }
 
 #[tauri::command]

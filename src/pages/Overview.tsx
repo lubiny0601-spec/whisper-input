@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { PreviewButton, PreviewCard, PreviewPageHeader, PreviewPill } from '../components/preview/PreviewPrimitives';
 import { detectOS } from '../components/WindowChrome';
 import { formatComboLabel } from '../lib/hotkey';
-import { getCredentials, listHistory } from '../lib/ipc';
+import { getCredentials, getUsageStats, listHistory } from '../lib/ipc';
 import { buildOverviewMetrics, buildWeeklyUsage } from '../lib/overviewMetrics';
 import type { WeeklyUsageDay } from '../lib/overviewMetrics';
 import { providerLogoSrc } from '../lib/providerBrand';
@@ -19,7 +19,7 @@ import {
   QWEN_LLM_PROVIDER_ID,
   QWEN_REALTIME_ASR_PROVIDER_ID,
 } from '../lib/product';
-import type { CredentialsStatus, DictationSession, PolishMode } from '../lib/types';
+import type { CredentialsStatus, DictationSession, PolishMode, UsageStats } from '../lib/types';
 import { useHotkeySettings } from '../state/HotkeySettingsContext';
 
 function useModeLabels(): Record<PolishMode, string> {
@@ -65,6 +65,7 @@ export function Overview({ onOpenHistory, onOpenSettings }: OverviewProps) {
   const os = detectOS();
   const modeLabel = useModeLabels();
   const [history, setHistory] = useState<DictationSession[]>([]);
+  const [usageStats, setUsageStats] = useState<UsageStats | null>(null);
   const [historyError, setHistoryError] = useState(false);
   const [credsError, setCredsError] = useState(false);
   const [creds, setCreds] = useState<CredentialsStatus>({
@@ -79,11 +80,15 @@ export function Overview({ onOpenHistory, onOpenSettings }: OverviewProps) {
 
   const refreshHistory = useCallback(() => {
     setHistoryError(false);
-    listHistory()
-      .then(setHistory)
+    Promise.all([listHistory(), getUsageStats()])
+      .then(([historyItems, stats]) => {
+        setHistory(historyItems);
+        setUsageStats(stats);
+      })
       .catch(error => {
         console.error('[overview] failed to load history', error);
         setHistoryError(true);
+        setUsageStats(null);
       });
   }, []);
 
@@ -100,7 +105,7 @@ export function Overview({ onOpenHistory, onOpenSettings }: OverviewProps) {
       });
   }, [refreshHistory]);
 
-  const metrics = useMemo(() => buildOverviewMetrics(history), [history]);
+  const metrics = useMemo(() => buildOverviewMetrics(history, new Date(), usageStats), [history, usageStats]);
   const weekly = useMemo(() => buildWeeklyUsage(history), [history]);
   const weeklyTotals = useMemo(() => {
     const sessions = weekly.reduce((sum, day) => sum + day.sessions, 0);

@@ -16,6 +16,7 @@ import type {
   QaHotkeyBinding,
   ShortcutBinding,
   UpdateChannel,
+  UsageStats,
   UserPreferences,
   WindowsImeStatus,
   VocabPresetStore,
@@ -274,6 +275,18 @@ export function listProviderModels(kind: 'llm' | 'asr'): Promise<ProviderModelsR
 // ── History ────────────────────────────────────────────────────────────
 export function listHistory(): Promise<DictationSession[]> {
   return invokeOrMock('list_history', undefined, () => mockHistory);
+}
+
+export function getUsageStats(): Promise<UsageStats> {
+  return invokeOrMock('get_usage_stats', undefined, () => {
+    const totalChars = mockHistory.reduce((sum, session) => sum + session.finalText.length, 0);
+    const totalDurationMs = mockHistory.reduce((sum, session) => sum + (session.durationMs ?? 0), 0);
+    return {
+      totalChars,
+      totalDurationMs,
+      totalSegments: mockHistory.length,
+    };
+  });
 }
 
 export function deleteHistoryEntry(id: string): Promise<void> {

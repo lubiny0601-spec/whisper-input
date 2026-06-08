@@ -1,4 +1,4 @@
-import type { DictationSession } from './types';
+import type { DictationSession, UsageStats } from './types';
 
 export interface OverviewMetrics {
   charsToday: number;
@@ -21,6 +21,7 @@ export interface WeeklyUsageDay {
 export function buildOverviewMetrics(
   history: DictationSession[],
   referenceDate = new Date(),
+  usageStats: UsageStats | null = null,
 ): OverviewMetrics {
   const todayStart = new Date(referenceDate);
   todayStart.setHours(0, 0, 0, 0);
@@ -55,8 +56,8 @@ export function buildOverviewMetrics(
   return {
     charsToday,
     segmentsToday,
-    totalChars,
-    totalDurationMs,
+    totalChars: usageStats?.totalChars ?? totalChars,
+    totalDurationMs: usageStats?.totalDurationMs ?? totalDurationMs,
     avgLatencyMs: segmentsToday > 0 ? todayDurationMs / segmentsToday : 0,
   };
 }

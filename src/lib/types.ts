@@ -313,6 +313,12 @@ export interface TodayMetrics {
   totalDurationMs: number;
 }
 
+export interface UsageStats {
+  totalChars: number;
+  totalDurationMs: number;
+  totalSegments: number;
+}
+
 export type PermissionStatus =
   | 'granted'
   | 'denied'

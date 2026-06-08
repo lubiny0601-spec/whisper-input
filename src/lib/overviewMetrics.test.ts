@@ -62,6 +62,26 @@ assertEqual(metrics.avgLatencyMs, 600, 'averages today durations with null as ze
 const emptyMetrics = buildOverviewMetrics([], new Date(2026, 4, 15, 16));
 assertEqual(emptyMetrics.avgLatencyMs, 0, 'empty history average is zero');
 
+const persistedTotals = buildOverviewMetrics(
+  [
+    session({
+      id: 'capped-visible-history',
+      createdAt: localIso(2026, 5, 15, 12),
+      finalText: 'visible',
+      durationMs: 1000,
+    }),
+  ],
+  new Date(2026, 4, 15, 16),
+  {
+    totalChars: 12345,
+    totalDurationMs: 67890,
+    totalSegments: 250,
+  },
+);
+
+assertEqual(persistedTotals.totalChars, 12345, 'uses persisted all-time character total');
+assertEqual(persistedTotals.totalDurationMs, 67890, 'uses persisted all-time duration total');
+
 const weekly = buildWeeklyUsage(
   [
     session({
